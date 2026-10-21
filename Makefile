@@ -10,7 +10,7 @@ DEV_DB_NAME  ?= git2-dev-postgres
 DEV_DB_PORT  ?= 5432
 DEV_DB_IMAGE ?= postgres:18-alpine
 
-.PHONY: build test test-integration lint proto migrate dev-db dev-db-stop
+.PHONY: build test test-integration lint proto proto-check migrate dev-db dev-db-stop
 
 ## build: compile git-svc into bin/
 build:
@@ -27,11 +27,18 @@ test-integration:
 ## lint: golangci-lint (Go) and buf lint (proto)
 lint:
 	$(GOTOOL) golangci-lint run ./...
+	$(GOTOOL) buf lint
+	$(GOTOOL) buf format -d --exit-code
 
 ## proto: lint the proto files and regenerate gen/go
 proto:
 	$(GOTOOL) buf lint
 	$(GOTOOL) buf generate
+
+## proto-check: fail if gen/go is out of date with proto/ (compares with the git index)
+proto-check:
+	$(GOTOOL) buf generate
+	git diff --exit-code -- gen/
 
 ## migrate: apply database migrations to GIT2_DATABASE_URL
 migrate:

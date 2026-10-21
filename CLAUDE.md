@@ -32,8 +32,9 @@ Run from the repo root.
 | Unit tests | `make test` (`go test ./...`, no Docker) |
 | Integration tests | `make test-integration` (`go test -tags=integration -count=1 ./...`, starts PostgreSQL with testcontainers) |
 | One test | `go test ./git-svc/internal/gitcmd -run TestParseVersion` |
-| Lint | `make lint` |
-| Regenerate proto code | `make proto` |
+| Lint | `make lint` (golangci-lint, `buf lint`, `buf format` check) |
+| Regenerate proto code | `make proto` (run after every `.proto` change and commit `gen/` with it) |
+| Check generated code is current | `make proto-check` (compares with the git index, so stage `gen/` first) |
 | Local PostgreSQL | `make dev-db` / `make dev-db-stop` |
 | Apply migrations | `make migrate` (needs `GIT2_DATABASE_URL`) |
 

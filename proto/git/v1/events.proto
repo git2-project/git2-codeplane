@@ -1,0 +1,91 @@
+// Domain events published by git-svc.
+//
+// Delivery:
+//   - git-svc writes each event to its outbox table in the same database
+//     transaction as the change it describes, so an event exists if and
+//     only if the change was committed.
+//   - Events are delivered at least once. A consumer can see the same event
+//     more than once and must handle it idempotently, using the event ID
+//     carried next to the payload.
+//   - The event type is the full message name, for example
+//     "git.v1.RepositoryCreated". The payload is the message in the
+//     canonical protobuf JSON encoding.
+syntax = "proto3";
+
+package git.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// RepositoryCreated is published when a repository is created.
+message RepositoryCreated {
+  // ID of the new repository.
+  string id = 1;
+
+  // ID of the user or organization that owns it.
+  string owner_id = 2;
+
+  // Name of the repository.
+  string name = 3;
+
+  // When the repository was created. Equal to Repository.created_at.
+  google.protobuf.Timestamp occurred_at = 4;
+}
+
+// RepositoryDeleted is published when a repository is deleted.
+message RepositoryDeleted {
+  // ID of the deleted repository.
+  string id = 1;
+
+  // ID of the user or organization that owned it.
+  string owner_id = 2;
+
+  // Name the repository had. The owner can reuse it right away.
+  string name = 3;
+
+  // When the repository was deleted.
+  google.protobuf.Timestamp occurred_at = 4;
+}
+
+// RepositoryPushed is published after a push changes at least one ref.
+//
+// NOT EMITTED YET. git-svc will publish it once push over HTTPS exists
+// (W2-W3). It is defined now so that ci-svc can code against it.
+//
+// One push can update several refs; they are all in one event. A push that
+// changes no ref produces no event.
+message RepositoryPushed {
+  // ID of the repository that was pushed to.
+  string repository_id = 1;
+
+  // ID of the user who pushed, as issued by auth-svc.
+  string pusher_id = 2;
+
+  // When git-svc accepted the push.
+  google.protobuf.Timestamp occurred_at = 3;
+
+  // The refs the push changed, in the order Git reported them.
+  repeated RefUpdate ref_updates = 4;
+}
+
+// RefUpdate is one ref changed by a push.
+//
+// Object IDs are lowercase hex strings. An ID made only of zeros means "no
+// object", as in Git's own hooks:
+//   - old_sha all zeros: the ref was created.
+//   - new_sha all zeros: the ref was deleted.
+message RefUpdate {
+  // Full name of the ref, for example "refs/heads/main" or
+  // "refs/tags/v1.0.0".
+  string ref = 1;
+
+  // Object ID the ref pointed to before the push.
+  string old_sha = 2;
+
+  // Object ID the ref points to after the push.
+  string new_sha = 3;
+
+  // True if the update was not a fast-forward: old_sha is not an ancestor
+  // of new_sha, so commits were removed from the ref's history. Always
+  // false when the ref was created or deleted.
+  bool forced = 4;
+}

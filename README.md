@@ -23,7 +23,20 @@ Built on `git` and `go-git`. Callers never touch repository files directly; they
 
 ## Status
 
-Early development, on the 9-week plan in the [org README](https://github.com/git2-project). Nothing here is ready to run yet; build and test commands will land in this file and in `CLAUDE.md` as the code does.
+Early development, on the 9-week plan in the [org README](https://github.com/git2-project).
+
+## Build and test
+
+Needs Go (version in `go.mod`), git ≥ 2.38, Docker and GNU make. Dev tools (buf, golangci-lint) are pinned in `tools.mod`; nothing else to install.
+
+```sh
+make build              # bin/git-svc
+make test               # unit tests
+make test-integration   # + integration tests (PostgreSQL via testcontainers)
+make lint
+```
+
+To run it locally, start PostgreSQL with `make dev-db`, then set `GIT2_DATABASE_URL` and `GIT2_STORAGE_ROOT` (an absolute path) and run `bin/git-svc`. [CLAUDE.md](CLAUDE.md) lists every variable and convention. Design decisions are in [docs/decisions](docs/decisions/).
 
 ## Contributing
 

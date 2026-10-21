@@ -1,0 +1,15 @@
+version: v2
+# Managed mode sets go_package, so the .proto files stay language-neutral.
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/git2-project/git2-codeplane/gen/go
+plugins:
+  # Plugins come from tools.mod, so everyone generates with the same versions.
+  - local: [go, tool, -modfile=tools.mod, protoc-gen-go]
+    out: gen/go
+    opt: paths=source_relative
+  - local: [go, tool, -modfile=tools.mod, protoc-gen-go-grpc]
+    out: gen/go
+    opt: paths=source_relative

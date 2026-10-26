@@ -12,12 +12,17 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
+
+	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
 )
 
 var discard = slog.New(slog.DiscardHandler)
 
+// These tests never call RepositoryService, so it needs no repo.Service.
+// The RPCs are covered by the integration tests.
+
 func TestHealthLifecycle(t *testing.T) {
-	srv := New(discard, Options{})
+	srv := New(discard, nil, Options{})
 	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -32,12 +37,14 @@ func TestHealthLifecycle(t *testing.T) {
 	defer conn.Close()
 	client := healthpb.NewHealthClient(conn)
 
-	resp, err := client.Check(t.Context(), &healthpb.HealthCheckRequest{})
-	if err != nil {
-		t.Fatalf("Check() error = %v", err)
-	}
-	if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
-		t.Errorf("Check() status = %v, want SERVING", resp.GetStatus())
+	for _, service := range healthServices {
+		resp, err := client.Check(t.Context(), &healthpb.HealthCheckRequest{Service: service})
+		if err != nil {
+			t.Fatalf("Check(%q) error = %v", service, err)
+		}
+		if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
+			t.Errorf("Check(%q) status = %v, want SERVING", service, resp.GetStatus())
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -48,15 +55,17 @@ func TestHealthLifecycle(t *testing.T) {
 	}
 }
 
-func TestReflectionOnlyInDev(t *testing.T) {
+func TestRegisteredServices(t *testing.T) {
 	const reflectionService = "grpc.reflection.v1.ServerReflection"
 	for _, dev := range []bool{false, true} {
-		services := New(discard, Options{Reflection: dev}).grpc.GetServiceInfo()
+		services := New(discard, nil, Options{Reflection: dev}).grpc.GetServiceInfo()
 		if _, ok := services[reflectionService]; ok != dev {
 			t.Errorf("Reflection=%v: reflection registered = %v", dev, ok)
 		}
-		if _, ok := services[healthpb.Health_ServiceDesc.ServiceName]; !ok {
-			t.Errorf("Reflection=%v: health service not registered", dev)
+		for _, name := range []string{healthpb.Health_ServiceDesc.ServiceName, gitv1.RepositoryService_ServiceDesc.ServiceName} {
+			if _, ok := services[name]; !ok {
+				t.Errorf("Reflection=%v: %s not registered", dev, name)
+			}
 		}
 	}
 }

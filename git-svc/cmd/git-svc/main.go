@@ -1,7 +1,13 @@
 // Command git-svc is git2's Git service: it stores bare repositories on disk
 // and exposes them to other git2 services over gRPC.
 //
-// Configuration comes from environment variables; see package config.
+// Usage:
+//
+//	git-svc [serve]
+//
+// Configuration comes from environment variables; see package config. The
+// database schema comes from the git2 repo's migrations: git-svc checks
+// that it is there but never changes it.
 package main
 
 import (
@@ -15,7 +21,9 @@ import (
 	"time"
 
 	"github.com/git2-project/git2-codeplane/git-svc/internal/config"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/db"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/gitcmd"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/server"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/storage"
 )
@@ -37,7 +45,7 @@ func run(args []string) int {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Error("invalid configuration", slog.String("error", err.Error()))
+		log.Error("invalid configuration", slog.String("err", err.Error()))
 		return 1
 	}
 	log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
@@ -47,7 +55,7 @@ func run(args []string) int {
 	defer stop()
 
 	if err := serve(ctx, log, cfg); err != nil {
-		log.Error("git-svc failed", slog.String("error", err.Error()))
+		log.Error("git-svc failed", slog.String("err", err.Error()))
 		return 1
 	}
 	return 0
@@ -70,15 +78,32 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	}
 	log.Info("git found", slog.String("path", git.Path()), slog.String("version", version.String()))
 
+	pool, err := db.Open(ctx, cfg.PostgresDSN, cfg.PostgresMaxConns)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := db.CheckSchema(ctx, pool); err != nil {
+		return err
+	}
+	log.Info("database ready")
+
+	repos := repo.NewService(pool, storage.NewStore(layout, git), log)
+	srv := server.New(log, repos, server.Options{Reflection: cfg.Dev})
+
 	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.GRPCAddr)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", cfg.GRPCAddr, err)
 	}
+	log.Info("serving gRPC", slog.String("addr", lis.Addr().String()), slog.Bool("dev", cfg.Dev))
+	return serveUntilDone(ctx, log, srv, lis)
+}
 
-	srv := server.New(log, server.Options{Reflection: cfg.Dev})
+// serveUntilDone serves on lis until ctx is canceled, then shuts the server
+// down gracefully.
+func serveUntilDone(ctx context.Context, log *slog.Logger, srv *server.Server, lis net.Listener) error {
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(lis) }()
-	log.Info("serving gRPC", slog.String("addr", lis.Addr().String()), slog.Bool("dev", cfg.Dev))
 
 	select {
 	case err := <-served:

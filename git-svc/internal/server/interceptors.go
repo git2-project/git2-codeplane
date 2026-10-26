@@ -36,7 +36,7 @@ func logUnary(log *slog.Logger) grpc.UnaryServerInterceptor {
 			slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),
 		}
 		if err != nil {
-			attrs = append(attrs, slog.String("error", err.Error()))
+			attrs = append(attrs, slog.String("err", err.Error()))
 		}
 		log.LogAttrs(ctx, level, "rpc", attrs...)
 		return resp, err

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// dbURL has no password, so it is not a credential.
-const dbURL = "postgres://git2@localhost:5432/git2"
+// dsn has no password, so it is not a credential.
+const dsn = "postgres://git2@localhost:5432/git2"
 
 func TestParse(t *testing.T) {
 	// An absolute path on the current OS ("/srv/git" is not absolute on Windows).
@@ -16,7 +16,7 @@ func TestParse(t *testing.T) {
 
 	valid := func() map[string]string {
 		return map[string]string{
-			EnvDatabaseURL: dbURL,
+			EnvPostgresDSN: dsn,
 			EnvStorageRoot: root,
 		}
 	}
@@ -31,10 +31,11 @@ func TestParse(t *testing.T) {
 			name: "defaults",
 			env:  valid,
 			want: Config{
-				GRPCAddr:    DefaultGRPCAddr,
-				DatabaseURL: dbURL,
-				StorageRoot: root,
-				LogLevel:    slog.LevelInfo,
+				GRPCAddr:         DefaultGRPCAddr,
+				PostgresDSN:      dsn,
+				PostgresMaxConns: DefaultPostgresMaxConns,
+				StorageRoot:      root,
+				LogLevel:         slog.LevelInfo,
 			},
 		},
 		{
@@ -42,23 +43,25 @@ func TestParse(t *testing.T) {
 			env: func() map[string]string {
 				e := valid()
 				e[EnvGRPCAddr] = "127.0.0.1:7000"
+				e[EnvPostgresMaxConns] = "25"
 				e[EnvDev] = "true"
 				e[EnvLogLevel] = "debug"
 				e[EnvStorageRoot] = root + string(filepath.Separator) + "sub" + string(filepath.Separator) + ".."
 				return e
 			},
 			want: Config{
-				GRPCAddr:    "127.0.0.1:7000",
-				DatabaseURL: dbURL,
-				StorageRoot: root, // cleaned
-				Dev:         true,
-				LogLevel:    slog.LevelDebug,
+				GRPCAddr:         "127.0.0.1:7000",
+				PostgresDSN:      dsn,
+				PostgresMaxConns: 25,
+				StorageRoot:      root, // cleaned
+				Dev:              true,
+				LogLevel:         slog.LevelDebug,
 			},
 		},
 		{
 			name:    "missing required",
 			env:     func() map[string]string { return map[string]string{} },
-			wantErr: []string{EnvDatabaseURL + ": required", EnvStorageRoot + ": required"},
+			wantErr: []string{EnvPostgresDSN + ": required", EnvStorageRoot + ": required"},
 		},
 		{
 			name: "relative storage root",
@@ -74,11 +77,21 @@ func TestParse(t *testing.T) {
 			env: func() map[string]string {
 				e := valid()
 				e[EnvGRPCAddr] = "9090"
+				e[EnvPostgresMaxConns] = "0"
 				e[EnvDev] = "maybe"
 				e[EnvLogLevel] = "loud"
 				return e
 			},
-			wantErr: []string{EnvGRPCAddr, EnvDev + ": must be a boolean", EnvLogLevel},
+			wantErr: []string{EnvGRPCAddr, EnvPostgresMaxConns + ": must be a number from 1 to 1000", EnvDev + ": must be a boolean", EnvLogLevel},
+		},
+		{
+			name: "max conns too large",
+			env: func() map[string]string {
+				e := valid()
+				e[EnvPostgresMaxConns] = "5000"
+				return e
+			},
+			wantErr: []string{EnvPostgresMaxConns},
 		},
 	}
 

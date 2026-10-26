@@ -11,7 +11,14 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
+
+	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 )
+
+// healthServices are the names health reports on: "" for the whole server,
+// plus each gRPC service git-svc implements.
+var healthServices = []string{"", gitv1.RepositoryService_ServiceDesc.ServiceName}
 
 // Options configure New.
 type Options struct {
@@ -25,16 +32,21 @@ type Server struct {
 	health *health.Server
 }
 
-// New builds the gRPC server with its interceptors and the health service.
-// Health reports NOT_SERVING until Serve is called.
-func New(log *slog.Logger, opts Options) *Server {
+// New builds the gRPC server with its interceptors, RepositoryService
+// backed by repos, and the health service. Health reports NOT_SERVING until
+// Serve is called.
+func New(log *slog.Logger, repos *repo.Service, opts Options) *Server {
 	gs := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(logUnary(log), recoverUnary(log)),
 		grpc.ChainStreamInterceptor(recoverStream(log)),
 	)
 
+	gitv1.RegisterRepositoryServiceServer(gs, &repositoryServer{repos: repos, log: log})
+
 	hs := health.NewServer()
-	hs.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+	for _, name := range healthServices {
+		hs.SetServingStatus(name, healthpb.HealthCheckResponse_NOT_SERVING)
+	}
 	healthpb.RegisterHealthServer(gs, hs)
 
 	if opts.Reflection {
@@ -45,7 +57,9 @@ func New(log *slog.Logger, opts Options) *Server {
 
 // Serve marks the server healthy and serves on lis until Shutdown is called.
 func (s *Server) Serve(lis net.Listener) error {
-	s.health.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	for _, name := range healthServices {
+		s.health.SetServingStatus(name, healthpb.HealthCheckResponse_SERVING)
+	}
 	return s.grpc.Serve(lis)
 }
 

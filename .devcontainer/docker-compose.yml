@@ -1,0 +1,55 @@
+services:
+
+  # ── Go toolchain (VS Code attaches here) ──────────────────────────────
+  # The shared dev DB is not a service here: POSTGRES_DSN in ../.env points at
+  # the team's shared PostgreSQL, whose schema comes from the git2 repo's
+  # migrations. The `postgres` service below is a throwaway database for tests.
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    init: true
+    volumes:
+      - ..:/workspace:cached
+      - go-modules:/go/pkg/mod
+      - go-build:/root/.cache/go-build
+      # Repositories live on a Linux volume, not in the bind-mounted workspace:
+      # faster, and no Windows path-length or file-locking surprises.
+      - git-data:/var/lib/git-svc
+    command: sleep infinity
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: ../.env
+        required: false
+    # Inside the container these win over ../.env.
+    environment:
+      GIT2_STORAGE_ROOT: /var/lib/git-svc
+      TEST_POSTGRES_DSN: postgres://git2:git2@postgres:5432/git2_test?sslmode=disable
+
+  # ── Throwaway PostgreSQL for tests ─────────────────────────────────────
+  # Never the shared dev DB. On its first start it loads this repo's copy of
+  # the migrations (/docker-entrypoint-initdb.d); tests create and delete their
+  # own rows. Dev only, with a fixed password, and not published on the host:
+  # only `app` can reach it, as postgres:5432.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: git2
+      POSTGRES_PASSWORD: git2
+      POSTGRES_DB: git2_test
+    volumes:
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "git2", "-d", "git2_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  go-modules:
+  go-build:
+  # Repositories created while developing survive a container rebuild.
+  git-data:

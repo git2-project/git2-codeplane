@@ -6,5 +6,16 @@
 *.out
 coverage.*
 
-# Local environment
+# Local environment: secrets live here; env.example is the template
 .env
+.env.*
+
+# Local runtime data (repositories when running on the host)
+/.data/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

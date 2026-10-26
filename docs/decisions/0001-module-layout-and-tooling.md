@@ -1,6 +1,6 @@
 # 0001. Module layout and dev tooling
 
-- Status: Accepted
+- Status: Accepted, amended by [ADR 0010](0010-alignment-with-git2-and-runner.md) (Go 1.26, development in the devcontainer, make target names)
 - Date: 2026-10-21
 
 ## Context

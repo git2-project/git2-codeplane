@@ -10,6 +10,8 @@
 | :--- | :--- |
 | `git-svc/` | The Git service: repo storage on disk, push and clone, diff, merge, branch protection |
 | `proto/git/v1/` | This service's own gRPC API, consumed by the core services in [git2](https://github.com/git2-project/git2) |
+| `migrations/` | A copy of git-svc's SQL migrations; the originals live in git2's `migrations/` |
+| `docs/version_notes/` | What changed for the other lanes, newest first in [overview.md](docs/version_notes/overview.md) |
 
 ## Responsibilities
 
@@ -25,18 +27,18 @@ Built on `git` and `go-git`. Callers never touch repository files directly; they
 
 Early development, on the 9-week plan in the [org README](https://github.com/git2-project).
 
-## Build and test
+## Development
 
-Needs Go (version in `go.mod`), git ≥ 2.38, Docker and GNU make. Dev tools (buf, golangci-lint) are pinned in `tools.mod`; nothing else to install.
+Open the repo in the devcontainer (VS Code → *Reopen in Container*). It has Go 1.26, git, psql and make, plus a throwaway PostgreSQL for the tests. Dev tools (buf, golangci-lint, grpcurl) are pinned in `tools.mod`.
 
 ```sh
-make build              # bin/git-svc
-make test               # unit tests
-make test-integration   # + integration tests (PostgreSQL via testcontainers)
+cp env.example .env    # fill in POSTGRES_DSN (the same shared DSN as in the git2 repo)
+make tests             # every test, including the Postgres ones
+make run               # git-svc on :9090, Ctrl-C stops it
 make lint
 ```
 
-To run it locally, start PostgreSQL with `make dev-db`, then set `GIT2_DATABASE_URL` and `GIT2_STORAGE_ROOT` (an absolute path) and run `bin/git-svc`. [CLAUDE.md](CLAUDE.md) lists every variable and convention. Design decisions are in [docs/decisions](docs/decisions/).
+git-svc does not create its own tables: its schema comes from the git2 repo's migrations, applied after merge. [CLAUDE.md](CLAUDE.md) lists every variable and convention. Design decisions are in [docs/decisions](docs/decisions/).
 
 ## Contributing
 

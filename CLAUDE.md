@@ -41,6 +41,7 @@ git-svc/internal/
   outbox                writes events into git_svc.outbox inside a transaction
   repo                  domain: validation, create/get/find/list/delete, SQL for repositories
   server                gRPC handlers, interceptors, error to status mapping
+  testdb                test helper: the TEST_POSTGRES_DSN database with migrations/ applied
 proto/git/v1/           the gRPC contract (source of truth)
 gen/go/                 generated code (make proto)
 migrations/             copy of our migrations in the git2 repo
@@ -120,7 +121,8 @@ These match git2 and git2-runner, so all git2 services look alike (ADR 0010).
 - **Style.** gofmt and goimports, with local imports grouped last. Every package and exported identifier has a doc comment.
 - **Tests.**
   - Table tests for pure logic. Use real git, not mocks, for anything touching repositories.
-  - Postgres tests live in `*_integration_test.go` files and skip unless `TEST_POSTGRES_DSN` is set. They create the schema from `migrations/` and delete their own rows.
+  - Postgres tests live in `*_integration_test.go` files and skip unless `TEST_POSTGRES_DSN` is set. They get their pool from `testdb.Open`, which applies `migrations/`, and delete their own rows (ADR 0011).
+  - Postgres tests run once per pgx mode (`testdb.Modes`: direct and pooler), because some bugs only show behind a transaction pooler.
   - Tests that need Docker carry `//go:build integration`.
 - **Commits.** Conventional commits (`feat(storage): ...`, `fix: ...`, `docs: ...`), small and focused.
 - **Decisions.** A decision not covered by existing docs gets a short ADR in `docs/decisions/NNNN-title.md`.

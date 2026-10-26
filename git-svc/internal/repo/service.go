@@ -50,7 +50,7 @@ func NewService(pool *pgxpool.Pool, store *storage.Store, log *slog.Logger) *Ser
 }
 
 // nameIndex is the unique index that enforces one live repository per
-// owner and case-insensitive name (migration 0001).
+// owner and case-insensitive name (migrations/002_git_repositories.sql).
 const nameIndex = "repositories_owner_name_live_uq"
 
 // columns are the repository columns, in the order scanRepository reads

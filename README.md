@@ -10,6 +10,8 @@
 | :--- | :--- |
 | `git-svc/` | The Git service: repo storage on disk, push and clone, diff, merge, branch protection |
 | `proto/git/v1/` | This service's own gRPC API, consumed by the core services in [git2](https://github.com/git2-project/git2) |
+| `migrations/` | A copy of git-svc's SQL migrations; the originals live in git2's `migrations/` |
+| `docs/version_notes/` | What changed for the other lanes, newest first in [overview.md](docs/version_notes/overview.md) |
 
 ## Responsibilities
 
@@ -23,7 +25,20 @@ Built on `git` and `go-git`. Callers never touch repository files directly; they
 
 ## Status
 
-Early development, on the 9-week plan in the [org README](https://github.com/git2-project). Nothing here is ready to run yet; build and test commands will land in this file and in `CLAUDE.md` as the code does.
+Early development, on the 9-week plan in the [org README](https://github.com/git2-project).
+
+## Development
+
+Open the repo in the devcontainer (VS Code → *Reopen in Container*). It has Go 1.26, git, psql and make, plus a throwaway PostgreSQL for the tests. Dev tools (buf, golangci-lint, grpcurl) are pinned in `tools.mod`.
+
+```sh
+cp env.example .env    # fill in POSTGRES_DSN (the same shared DSN as in the git2 repo)
+make tests             # every test, including the Postgres ones
+make run               # git-svc on :9090, Ctrl-C stops it
+make lint
+```
+
+git-svc does not create its own tables: its schema comes from the git2 repo's migrations, applied after merge. [CLAUDE.md](CLAUDE.md) lists every variable and convention. Design decisions are in [docs/decisions](docs/decisions/).
 
 ## Contributing
 

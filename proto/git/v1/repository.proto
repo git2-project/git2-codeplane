@@ -1,0 +1,208 @@
+// Package git.v1 is the gRPC API of git-svc, the Git engine of git2.
+//
+// git-svc owns every Git repository of a git2 instance. Other services
+// (gateway, dash-api, ci-svc, backup-svc) call this API and never touch
+// repository files directly.
+//
+// Conventions for the whole package:
+//   - IDs are UUIDs in canonical text form ("3f2b8c1e-...").
+//   - git-svc does not authenticate or authorize callers. The caller (for
+//     example the gateway) checks the user's permissions before calling.
+//   - Errors use standard gRPC codes: INVALID_ARGUMENT for bad input,
+//     NOT_FOUND, ALREADY_EXISTS, and INTERNAL for failures inside git-svc.
+//     INTERNAL errors never contain file paths or other internal details.
+//   - Domain events (RepositoryCreated, ...) are defined in events.proto.
+//
+// Planned services, not available yet:
+//   - RefService: list, create and delete branches and tags (W2-W3).
+//   - CommitService: commit history, trees and file contents for the code
+//     browser (W2-W3).
+//   - DiffService: diffs between commits and branches for merge requests
+//     (W4-W5).
+//   - OperationService: merges (merge commit, squash, fast-forward) and
+//     conflict reports (W4-W5).
+//   - SmartHTTP: `git clone` and `git push` over HTTPS. Served by git-svc
+//     over HTTP, not gRPC, behind the gateway (W2-W3).
+syntax = "proto3";
+
+package git.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// RepositoryService creates, finds, lists and deletes repositories.
+//
+// A repository is a bare Git repository on git-svc's disk plus a metadata
+// row in git-svc's database. Git holds the objects and refs; the database
+// holds only the metadata in Repository.
+service RepositoryService {
+  // CreateRepository creates an empty bare repository.
+  //
+  // The new repository has no commits. HEAD points to
+  // refs/heads/<default_branch>, so the first push to that branch makes it
+  // the default branch.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: owner_id is not a UUID, or name, default_branch
+  //     or description breaks the rules on CreateRepositoryRequest.
+  //   - ALREADY_EXISTS: the owner already has a repository with this name,
+  //     compared case-insensitively.
+  rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse);
+
+  // GetRepository returns a repository by ID.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: id is not a UUID.
+  //   - NOT_FOUND: no repository has this ID, or it was deleted.
+  rpc GetRepository(GetRepositoryRequest) returns (GetRepositoryResponse);
+
+  // FindRepository returns a repository by owner and name.
+  //
+  // The name is matched case-insensitively, so "Payments" finds
+  // "payments". The gateway uses this to turn URLs like
+  // /acme/payments.git into a repository ID.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: owner_id is not a UUID, or name is empty.
+  //   - NOT_FOUND: the owner has no repository with this name.
+  rpc FindRepository(FindRepositoryRequest) returns (FindRepositoryResponse);
+
+  // ListRepositories returns one page of an owner's repositories, sorted
+  // by name (case-insensitive).
+  //
+  // An owner with no repositories gets an empty list, not an error.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: owner_id is not a UUID, page_size is negative, or
+  //     page_token is invalid or belongs to a different owner.
+  rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse);
+
+  // DeleteRepository deletes a repository.
+  //
+  // The repository disappears from Get, Find and List at once, and its name
+  // can be reused immediately. Its files are moved aside and purged later;
+  // a deleted repository cannot be restored through this API.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: id is not a UUID.
+  //   - NOT_FOUND: no repository has this ID, or it was already deleted.
+  rpc DeleteRepository(DeleteRepositoryRequest) returns (DeleteRepositoryResponse);
+}
+
+// Repository is the metadata of one repository.
+//
+// The location of the repository on disk is internal to git-svc and is
+// never exposed.
+message Repository {
+  // Unique ID of the repository, assigned by git-svc. Never changes.
+  string id = 1;
+
+  // ID of the user or organization that owns the repository, as issued by
+  // auth-svc.
+  string owner_id = 2;
+
+  // Name of the repository, unique per owner (case-insensitively). Stored
+  // with the case it was created with. See CreateRepositoryRequest.name for
+  // the rules.
+  string name = 3;
+
+  // Branch that HEAD points to, without the "refs/heads/" prefix, for
+  // example "main".
+  string default_branch = 4;
+
+  // Free-text description. Empty if none was given.
+  string description = 5;
+
+  // When the repository was created.
+  google.protobuf.Timestamp created_at = 6;
+
+  // When the repository's metadata last changed. Pushes do not change it.
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// CreateRepositoryRequest is the input of CreateRepository.
+message CreateRepositoryRequest {
+  // ID of the user or organization that will own the repository. Required.
+  string owner_id = 1;
+
+  // Name of the repository. Required. Rules:
+  //   - 1 to 100 characters from A-Z, a-z, 0-9, ".", "_" and "-".
+  //   - Must not start with "." or "-".
+  //   - Must not end with ".git" (in any letter case).
+  string name = 2;
+
+  // Branch for HEAD, without the "refs/heads/" prefix. Defaults to "main".
+  // Must be a valid Git branch name (see `git check-ref-format --branch`)
+  // of at most 255 bytes.
+  optional string default_branch = 3;
+
+  // Free-text description. At most 2000 characters of valid UTF-8.
+  // Defaults to empty.
+  optional string description = 4;
+}
+
+// CreateRepositoryResponse is the output of CreateRepository.
+message CreateRepositoryResponse {
+  // The new repository.
+  Repository repository = 1;
+}
+
+// GetRepositoryRequest is the input of GetRepository.
+message GetRepositoryRequest {
+  // ID of the repository. Required.
+  string id = 1;
+}
+
+// GetRepositoryResponse is the output of GetRepository.
+message GetRepositoryResponse {
+  // The repository.
+  Repository repository = 1;
+}
+
+// FindRepositoryRequest is the input of FindRepository.
+message FindRepositoryRequest {
+  // ID of the owner. Required.
+  string owner_id = 1;
+
+  // Name of the repository, matched case-insensitively. Required.
+  string name = 2;
+}
+
+// FindRepositoryResponse is the output of FindRepository.
+message FindRepositoryResponse {
+  // The repository.
+  Repository repository = 1;
+}
+
+// ListRepositoriesRequest is the input of ListRepositories.
+message ListRepositoriesRequest {
+  // ID of the owner whose repositories are listed. Required.
+  string owner_id = 1;
+
+  // Maximum number of repositories to return. 0 means the default of 50.
+  // Values above 100 are treated as 100. Negative values are rejected.
+  int32 page_size = 2;
+
+  // Token from a previous response's next_page_token, to get the next
+  // page. Empty for the first page. Tokens are opaque: do not parse or
+  // build them, and use them only with the same owner_id.
+  string page_token = 3;
+}
+
+// ListRepositoriesResponse is the output of ListRepositories.
+message ListRepositoriesResponse {
+  // Repositories on this page, sorted by name (case-insensitive).
+  repeated Repository repositories = 1;
+
+  // Token for the next page. Empty if this is the last page.
+  string next_page_token = 2;
+}
+
+// DeleteRepositoryRequest is the input of DeleteRepository.
+message DeleteRepositoryRequest {
+  // ID of the repository. Required.
+  string id = 1;
+}
+
+// DeleteRepositoryResponse is the output of DeleteRepository. It is empty
+// on purpose, so fields can be added later without breaking callers.
+message DeleteRepositoryResponse {}

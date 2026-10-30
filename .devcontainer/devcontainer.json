@@ -1,0 +1,43 @@
+{
+  "name": "git2-codeplane",
+
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.Go",
+        "bufbuild.vscode-buf",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.makefile-tools",
+        "Anthropic.claude-code"
+      ],
+      "settings": {
+        "go.useLanguageServer": true,
+        "go.formatTool": "goimports",
+        "[go]": {
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": { "source.organizeImports": "explicit" }
+        },
+        // Forward only ports a container process actually listens on, not every
+        // localhost:PORT printed in a terminal.
+        "remote.autoForwardPortsSource": "process"
+      }
+    }
+  },
+
+  // The workspace is bind-mounted, so its owner can differ from the container
+  // user; mark it safe for git. Then download the modules of the service and
+  // of the pinned tools (tools.mod).
+  "postCreateCommand": "git config --global --add safe.directory /workspace && go mod download && go mod download -modfile=tools.mod",
+
+  "remoteUser": "root",
+
+  // git-svc's gRPC port. The test PostgreSQL is a sibling compose service,
+  // reached as postgres:5432 and never published on the host.
+  "forwardPorts": [9090],
+
+  "shutdownAction": "stopCompose"
+}

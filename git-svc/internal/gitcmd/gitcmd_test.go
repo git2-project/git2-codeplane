@@ -1,13 +1,16 @@
 package gitcmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newRunner(t *testing.T) (*Runner, string) {
@@ -87,6 +90,79 @@ func TestRunCanceled(t *testing.T) {
 	_, err := r.Run(ctx, "", "version")
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Run() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestStreamPipesInputAndOutput(t *testing.T) {
+	r, _ := newRunner(t)
+	var out bytes.Buffer
+
+	// hash-object reads the content from stdin and prints its object ID.
+	err := r.Stream(t.Context(), StreamOptions{Stdin: strings.NewReader("hello\n"), Stdout: &out},
+		"hash-object", "--stdin")
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	// The well-known ID of a blob containing "hello\n".
+	if got, want := strings.TrimSpace(out.String()), "ce013625030ba8dba906f756967f9e9ca394464a"; got != want {
+		t.Errorf("hash-object = %q, want %q", got, want)
+	}
+}
+
+func TestStreamAddsEnv(t *testing.T) {
+	r, _ := newRunner(t)
+	var out bytes.Buffer
+
+	// GIT_CONFIG_COUNT and friends set config through the environment.
+	env := []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=git2.probe", "GIT_CONFIG_VALUE_0=from-env"}
+	err := r.Stream(t.Context(), StreamOptions{Env: env, Stdout: &out}, "config", "--get", "git2.probe")
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "from-env" {
+		t.Errorf("git2.probe = %q, want %q", got, "from-env")
+	}
+
+	// The extra variables are per call: the Runner's own environment is
+	// unchanged.
+	if slices.Contains(r.env, env[0]) {
+		t.Errorf("Stream() changed the Runner's environment: %q", r.env)
+	}
+}
+
+func TestStreamErrorIncludesStderr(t *testing.T) {
+	r, _ := newRunner(t)
+
+	err := r.Stream(t.Context(), StreamOptions{Dir: t.TempDir(), Stdout: io.Discard}, "rev-parse", "--git-dir")
+
+	var gitErr *Error
+	if !errors.As(err, &gitErr) || gitErr.ExitCode != 128 || !strings.Contains(gitErr.Stderr, "not a git repository") {
+		t.Errorf("Stream() error = %v, want *Error with exit code 128 and git's message", err)
+	}
+}
+
+func TestStreamStopsWhenCanceled(t *testing.T) {
+	r, _ := newRunner(t)
+	ctx, cancel := context.WithCancel(t.Context())
+
+	// hash-object waits for the end of its input, which never comes.
+	pr, pw := io.Pipe()
+	defer pw.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.Stream(ctx, StreamOptions{Stdin: pr, Stdout: io.Discard}, "hash-object", "--stdin")
+	}()
+	time.Sleep(200 * time.Millisecond) // let git start and block on stdin
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("Stream() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Stream() did not return after its context was canceled")
 	}
 }
 

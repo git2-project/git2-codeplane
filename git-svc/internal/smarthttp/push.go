@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -39,6 +41,9 @@ const hookPerm = 0o750
 // updates and writing the event.
 const recordTimeout = 30 * time.Second
 
+// hookCheckTimeout bounds the startup run of the hook.
+const hookCheckTimeout = 10 * time.Second
+
 // installHooks writes git-svc's hooks into dir, replacing older versions.
 // The file is written next to the hook and renamed over it, so a push
 // never runs a half-written hook.
@@ -55,6 +60,31 @@ func installHooks(dir string) error {
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("install post-receive hook: %w", err)
+	}
+	return nil
+}
+
+// checkHooks runs the installed hook once, without GIT2_PUSHED_REFS, so it
+// exits at once. Git skips a hook it cannot execute and still accepts the
+// push: on a storage root mounted noexec, every push would go unrecorded
+// and nothing would say why. Failing here makes that a startup error.
+//
+// On Windows there is no noexec, and git runs hooks through its own sh,
+// so the check is skipped.
+func checkHooks(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), hookCheckTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, filepath.Join(dir, "post-receive")) //nolint:gosec // G204: git-svc's own hook.
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			err = fmt.Errorf("%w: %s", err, msg)
+		}
+		return fmt.Errorf("run the post-receive hook in %s: %w; the storage root must allow executing files (not mounted noexec)", dir, err)
 	}
 	return nil
 }

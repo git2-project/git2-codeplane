@@ -454,6 +454,28 @@ func TestInstallHooks(t *testing.T) {
 	}
 }
 
+func TestCheckHooks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("checkHooks does nothing on Windows")
+	}
+	dir := t.TempDir()
+	if err := installHooks(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkHooks(dir); err != nil {
+		t.Errorf("checkHooks() with the installed hook = %v, want nil", err)
+	}
+
+	// A hook that cannot be executed fails the same way as one on a noexec
+	// mount: execve returns EACCES, even for root.
+	if err := os.Chmod(filepath.Join(dir, "post-receive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkHooks(dir); err == nil || !strings.Contains(err.Error(), "noexec") {
+		t.Errorf("checkHooks() with a hook that cannot run = %v, want an error that names noexec", err)
+	}
+}
+
 func TestParsePushedRefs(t *testing.T) {
 	sha1 := strings.Repeat("a", 40)
 	sha256 := strings.Repeat("b", 64)

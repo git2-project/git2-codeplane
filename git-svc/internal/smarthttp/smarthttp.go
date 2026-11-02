@@ -106,7 +106,8 @@ type Server struct {
 	cancelPushes context.CancelFunc
 }
 
-// New builds the server and installs the hook that reports pushed refs.
+// New builds the server and installs the hook that reports pushed refs. It
+// fails if the hook cannot run.
 func New(opts Options) (*Server, error) {
 	if opts.MaxPushSize <= 0 {
 		opts.MaxPushSize = DefaultMaxPushSize
@@ -115,6 +116,9 @@ func New(opts Options) (*Server, error) {
 		opts.MaxFetchRequestSize = DefaultMaxFetchRequestSize
 	}
 	if err := installHooks(opts.Layout.HooksDir()); err != nil {
+		return nil, err
+	}
+	if err := checkHooks(opts.Layout.HooksDir()); err != nil {
 		return nil, err
 	}
 

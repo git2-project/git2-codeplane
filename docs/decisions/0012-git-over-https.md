@@ -54,7 +54,7 @@ A push must also produce `git.v1.RepositoryPushed`, which ci-svc turns into pipe
 This gives three properties:
 - Refs that the server rejected are never in the event, because git passes only the updated ones to the hook.
 - A hook inside a repository directory never runs, because `core.hooksPath` replaces the repository's hooks.
-- The hook is a two-line `sh` script, so pushes need a storage root on which files can be executed (not mounted `noexec`).
+- The hook is a two-line `sh` script, so pushes need a storage root on which files can be executed (not mounted `noexec`). Git skips a hook it cannot execute and still accepts the push, so on such a root every event would be lost without a trace. git-svc therefore runs the hook once at startup and refuses to start if it cannot (except on Windows, which has no `noexec`).
 
 **The event is written after the push.** Git updates the refs on disk, then git-svc writes the event. The two cannot share a transaction.
 - If git-svc stops, or its database fails, in between, the push has happened without an event. git-svc logs this at ERROR level (`RepositoryPushed is lost`).

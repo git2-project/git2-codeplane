@@ -98,7 +98,7 @@ git -c http.extraHeader="X-Git2-User-Id: 22222222-2222-4222-8222-222222222222" p
 | `POSTGRES_DSN` | required | PostgreSQL connection string, same name as in git2 (never log it) |
 | `POSTGRES_MAX_CONNS` | `10` | connection pool size, 1 to 1000 |
 | `TEST_POSTGRES_DSN` | unset | throwaway DB for Postgres tests; they skip when it is unset. Never the shared DB |
-| `GIT2_STORAGE_ROOT` | required | absolute path; holds `repositories/`, `tmp/`, `trash/`, `home/`, `hooks/`. Must allow executing files (the push hook) |
+| `GIT2_STORAGE_ROOT` | required | absolute path; holds `repositories/`, `tmp/`, `trash/`, `home/`, `hooks/`. Must allow executing files (the push hook); git-svc checks this at startup |
 | `GIT2_GITSVC_GRPC_ADDR` | `:9090` | gRPC listen address |
 | `GIT2_GITSVC_HTTP_ADDR` | `:9080` | HTTP listen address: smart HTTP for git clients, `/healthz`, `/readyz` |
 | `GIT2_GITSVC_DEV` | `false` | dev-only features (gRPC reflection) |

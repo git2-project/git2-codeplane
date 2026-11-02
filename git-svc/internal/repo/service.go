@@ -1,9 +1,10 @@
-// Package repo implements repository management: input validation and the
-// create, get, find, list and delete flows.
+// Package repo implements repository management: input validation, the
+// create, get, find, list and delete flows, and the events of pushes.
 //
 // Metadata lives in PostgreSQL (git_svc.repositories), the repositories
 // themselves on disk (package storage), and every change records an event
-// in the outbox in the same transaction.
+// in the outbox in the same transaction. A push is the exception: git
+// changes the refs on disk first, then RecordPush writes its event.
 package repo
 
 import (

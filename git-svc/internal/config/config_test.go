@@ -32,6 +32,7 @@ func TestParse(t *testing.T) {
 			env:  valid,
 			want: Config{
 				GRPCAddr:         DefaultGRPCAddr,
+				HTTPAddr:         DefaultHTTPAddr,
 				PostgresDSN:      dsn,
 				PostgresMaxConns: DefaultPostgresMaxConns,
 				StorageRoot:      root,
@@ -43,6 +44,7 @@ func TestParse(t *testing.T) {
 			env: func() map[string]string {
 				e := valid()
 				e[EnvGRPCAddr] = "127.0.0.1:7000"
+				e[EnvHTTPAddr] = "127.0.0.1:7080"
 				e[EnvPostgresMaxConns] = "25"
 				e[EnvDev] = "true"
 				e[EnvLogLevel] = "debug"
@@ -51,6 +53,7 @@ func TestParse(t *testing.T) {
 			},
 			want: Config{
 				GRPCAddr:         "127.0.0.1:7000",
+				HTTPAddr:         "127.0.0.1:7080",
 				PostgresDSN:      dsn,
 				PostgresMaxConns: 25,
 				StorageRoot:      root, // cleaned
@@ -77,12 +80,13 @@ func TestParse(t *testing.T) {
 			env: func() map[string]string {
 				e := valid()
 				e[EnvGRPCAddr] = "9090"
+				e[EnvHTTPAddr] = "localhost"
 				e[EnvPostgresMaxConns] = "0"
 				e[EnvDev] = "maybe"
 				e[EnvLogLevel] = "loud"
 				return e
 			},
-			wantErr: []string{EnvGRPCAddr, EnvPostgresMaxConns + ": must be a number from 1 to 1000", EnvDev + ": must be a boolean", EnvLogLevel},
+			wantErr: []string{EnvGRPCAddr, EnvHTTPAddr, EnvPostgresMaxConns + ": must be a number from 1 to 1000", EnvDev + ": must be a boolean", EnvLogLevel},
 		},
 		{
 			name: "max conns too large",

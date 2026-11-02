@@ -35,9 +35,9 @@
 
   "remoteUser": "root",
 
-  // git-svc's gRPC port. The test PostgreSQL is a sibling compose service,
-  // reached as postgres:5432 and never published on the host.
-  "forwardPorts": [9090],
+  // git-svc's gRPC and HTTP ports. The test PostgreSQL is a sibling compose
+  // service, reached as postgres:5432 and never published on the host.
+  "forwardPorts": [9090, 9080],
 
   "shutdownAction": "stopCompose"
 }

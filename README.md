@@ -34,7 +34,7 @@ Open the repo in the devcontainer (VS Code → *Reopen in Container*). It has Go
 ```sh
 cp env.example .env    # fill in POSTGRES_DSN (the same shared DSN as in the git2 repo)
 make tests             # every test, including the Postgres ones
-make run               # git-svc on :9090, Ctrl-C stops it
+make run               # git-svc: gRPC on :9090, git clone/push over HTTP on :9080
 make lint
 ```
 

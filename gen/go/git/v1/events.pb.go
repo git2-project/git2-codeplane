@@ -3,7 +3,8 @@
 // Delivery:
 //   - git-svc writes each event to its outbox table in the same database
 //     transaction as the change it describes, so an event exists if and
-//     only if the change was committed.
+//     only if the change was committed. RepositoryPushed is the exception:
+//     see its comment.
 //   - Events are delivered at least once. A consumer can see the same event
 //     more than once and must handle it idempotently, using the event ID
 //     carried next to the payload.
@@ -181,20 +182,27 @@ func (x *RepositoryDeleted) GetOccurredAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// RepositoryPushed is published after a push changes at least one ref.
+// RepositoryPushed is published after a push over HTTPS changes at least
+// one ref.
 //
-// NOT EMITTED YET. git-svc will publish it once push over HTTPS exists
-// (W2-W3). It is defined now so that ci-svc can code against it.
+// One push can update several refs; they are all in one event. Refs the
+// server rejected are not included, and a push that changes no ref
+// produces no event.
 //
-// One push can update several refs; they are all in one event. A push that
-// changes no ref produces no event.
+// Git updates the refs on disk before git-svc writes the event, so the two
+// cannot share a transaction. If git-svc stops or its database fails in
+// between, the push has happened without an event; git-svc logs every
+// such loss. A push to a repository that is deleted at the same moment
+// may also produce no event. An event is never written for a push that
+// did not happen.
 type RepositoryPushed struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ID of the repository that was pushed to.
 	RepositoryId string `protobuf:"bytes,1,opt,name=repository_id,json=repositoryId,proto3" json:"repository_id,omitempty"`
-	// ID of the user who pushed, as issued by auth-svc.
+	// ID of the user who pushed, as issued by auth-svc. The gateway passes it
+	// to git-svc in the X-Git2-User-Id header.
 	PusherId string `protobuf:"bytes,2,opt,name=pusher_id,json=pusherId,proto3" json:"pusher_id,omitempty"`
-	// When git-svc accepted the push.
+	// When git-svc recorded the push, just after git updated the refs.
 	OccurredAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
 	// The refs the push changed, in the order Git reported them.
 	RefUpdates    []*RefUpdate `protobuf:"bytes,4,rep,name=ref_updates,json=refUpdates,proto3" json:"ref_updates,omitempty"`

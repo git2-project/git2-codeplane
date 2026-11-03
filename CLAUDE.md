@@ -23,7 +23,7 @@ Read `docs/decisions/` (what is decided and why) before changing anything they c
 - Go 1.26, one module at the repo root (`github.com/git2-project/git2-codeplane`).
 - gRPC with protobuf; buf for lint and codegen. Generated Go code in `gen/go/` is committed. REST lives only at git2's gateway.
 - PostgreSQL through pgx/v5, on the team's shared dev DB (`POSTGRES_DSN`), schema `git_svc`. Events go to `git_svc.outbox` in the same transaction as the change.
-- Git is the source of truth for objects and refs; the database holds metadata only and never stores commits. Anything that writes to a repository or speaks the Git protocol uses the `git` CLI (2.38 or newer) through `internal/gitcmd`. go-git is allowed later for read paths.
+- Git is the source of truth for objects and refs; the database holds metadata only and never stores commits. Anything that writes to a repository or speaks the Git protocol uses the `git` CLI (2.38 or newer) through `internal/gitcmd`. Reads do too (ADR 0013); go-git stays an option if a read path ever needs it.
 - git-svc does not use Redis.
 - `log/slog` JSON logs.
 - Dev tools (buf, protoc plugins, golangci-lint, grpcurl) are pinned in `tools.mod` and run with `go tool -modfile=tools.mod <tool>`.
@@ -34,6 +34,7 @@ Read `docs/decisions/` (what is decided and why) before changing anything they c
 .devcontainer/          Go 1.26, git, psql, make + a throwaway PostgreSQL for tests
 git-svc/cmd/git-svc     main: config, startup checks, gRPC and HTTP servers, graceful shutdown
 git-svc/internal/
+  browse                reads branches, tags, directories, files and commits with diffs (ADR 0013)
   config                env parsing and validation
   gitcmd                the only place that executes git
   storage               on-disk layout; create, trash and remove bare repositories
@@ -51,7 +52,7 @@ docs/version_notes/     one note per change other lanes must know about; overvie
 env.example             template for .env
 ```
 
-A request flows `server → repo → (storage, db, outbox)`. `repo` knows nothing about gRPC; `server` knows no business rules. Git clients take the other door: `smarthttp` runs `git upload-pack` / `git receive-pack` itself and calls `repo` only to look the repository up and to record a push.
+A request flows `server → repo → (storage, db, outbox)`. `repo` knows nothing about gRPC; `server` knows no business rules. Reads of repository content (RefService, CommitService) flow `server → browse`, which asks `repo` only whether the repository is live. Git clients take the other door: `smarthttp` runs `git upload-pack` / `git receive-pack` itself and calls `repo` only to look the repository up and to record a push.
 
 ## Development
 

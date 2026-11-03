@@ -19,6 +19,12 @@ the right month folder and add a line at the top of that month's table below.
 
 ---
 
+## 2026 · November
+
+| Date | What changed | Affects | Tag |
+|---|---|---|---|
+| [3 Nov](2026/11/03_11.md) | `RefService` and `CommitService` read branches, tags, directories, files and commits with their diffs, behind dash-api's code-browsing endpoints. ci-svc can read `.git2-ci.yml` with `GetBlob`. Dash: review the six assumptions in ADR 0013. | Dash, CI | 🟠 Action |
+
 ## 2026 · October
 
 | Date | What changed | Affects | Tag |

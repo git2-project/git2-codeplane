@@ -22,7 +22,7 @@ var discard = slog.New(slog.DiscardHandler)
 // The RPCs are covered by the integration tests.
 
 func TestHealthLifecycle(t *testing.T) {
-	srv := New(discard, nil, Options{})
+	srv := New(discard, nil, nil, Options{})
 	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -58,11 +58,16 @@ func TestHealthLifecycle(t *testing.T) {
 func TestRegisteredServices(t *testing.T) {
 	const reflectionService = "grpc.reflection.v1.ServerReflection"
 	for _, dev := range []bool{false, true} {
-		services := New(discard, nil, Options{Reflection: dev}).grpc.GetServiceInfo()
+		services := New(discard, nil, nil, Options{Reflection: dev}).grpc.GetServiceInfo()
 		if _, ok := services[reflectionService]; ok != dev {
 			t.Errorf("Reflection=%v: reflection registered = %v", dev, ok)
 		}
-		for _, name := range []string{healthpb.Health_ServiceDesc.ServiceName, gitv1.RepositoryService_ServiceDesc.ServiceName} {
+		for _, name := range []string{
+			healthpb.Health_ServiceDesc.ServiceName,
+			gitv1.RepositoryService_ServiceDesc.ServiceName,
+			gitv1.RefService_ServiceDesc.ServiceName,
+			gitv1.CommitService_ServiceDesc.ServiceName,
+		} {
 			if _, ok := services[name]; !ok {
 				t.Errorf("Reflection=%v: %s not registered", dev, name)
 			}

@@ -13,9 +13,9 @@ const (
 	maxPageSize     = 100
 )
 
-// pageSize applies the page size rules: 0 means the default, values above
+// PageSize applies the page size rules: 0 means the default, values above
 // the maximum are lowered to it, negative values are rejected.
-func pageSize(n int32) (int, error) {
+func PageSize(n int32) (int, error) {
 	switch {
 	case n < 0:
 		return 0, invalid("page_size", "must not be negative")

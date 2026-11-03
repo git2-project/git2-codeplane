@@ -201,7 +201,7 @@ type Page struct {
 // List returns one page of the owner's live repositories, sorted by name
 // (case-insensitive).
 func (s *Service) List(ctx context.Context, p ListParams) (Page, error) {
-	size, err := pageSize(p.PageSize)
+	size, err := PageSize(p.PageSize)
 	if err != nil {
 		return Page{}, err
 	}

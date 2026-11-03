@@ -21,9 +21,9 @@ func TestPageSize(t *testing.T) {
 		{in: -1, wantErr: true},
 	}
 	for _, tt := range tests {
-		got, err := pageSize(tt.in)
+		got, err := PageSize(tt.in)
 		if (err != nil) != tt.wantErr || got != tt.want {
-			t.Errorf("pageSize(%d) = %d, %v; want %d, error %v", tt.in, got, err, tt.want, tt.wantErr)
+			t.Errorf("PageSize(%d) = %d, %v; want %d, error %v", tt.in, got, err, tt.want, tt.wantErr)
 		}
 	}
 }

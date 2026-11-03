@@ -17,10 +17,15 @@
 // go through the gateway to git-svc's smart HTTP port, not gRPC
 // (git2-codeplane ADR 0012).
 //
+// Services:
+//   - RepositoryService (this file): create, find, list and delete
+//     repositories.
+//   - RefService (ref.proto): list branches and tags.
+//   - CommitService (commit.proto): directories, files and commits, for the
+//     code browser and for ci-svc.
+//
 // Planned services, not available yet:
-//   - RefService: list, create and delete branches and tags (W2-W3).
-//   - CommitService: commit history, trees and file contents for the code
-//     browser (W2-W3).
+//   - Creating and deleting branches and tags through the API (W4-W5).
 //   - DiffService: diffs between commits and branches for merge requests
 //     (W4-W5).
 //   - OperationService: merges (merge commit, squash, fast-forward) and

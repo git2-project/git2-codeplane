@@ -1,0 +1,107 @@
+// Reading a repository's branches and tags. Conventions are those of
+// repository.proto; names and messages follow the UTF-8 rule of
+// commit.proto.
+syntax = "proto3";
+
+package git.v1;
+
+import "git/v1/commit.proto";
+
+// RefService lists the branches and tags of a repository.
+//
+// Creating and deleting branches and tags through the API comes later;
+// today they change only through git push.
+service RefService {
+  // ListBranches returns one page of branches: the default branch first,
+  // then the others by name (byte order).
+  //
+  // A repository without branches gets an empty list, not an error.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id is not a UUID, query is longer than
+  //     255 bytes, page_size is negative, or page_token is invalid or was
+  //     issued for another repository.
+  //   - NOT_FOUND: the repository does not exist.
+  rpc ListBranches(ListBranchesRequest) returns (ListBranchesResponse);
+
+  // ListTags returns one page of tags, newest first: by the tag's date for
+  // an annotated tag, by its commit's date for a lightweight one, then by
+  // name.
+  //
+  // Errors: as for ListBranches, without query.
+  rpc ListTags(ListTagsRequest) returns (ListTagsResponse);
+}
+
+// Branch is one branch.
+message Branch {
+  // Name without the "refs/heads/" prefix, for example "main".
+  string name = 1;
+
+  // The commit the branch points to.
+  Commit commit = 2;
+
+  // True for the repository's default branch.
+  bool is_default = 3;
+}
+
+// Tag is one tag.
+message Tag {
+  // Name without the "refs/tags/" prefix, for example "v1.0.0".
+  string name = 1;
+
+  // The commit the tag points to. Unset for the rare tag that points to a
+  // tree or a file.
+  Commit commit = 2;
+
+  // Message of an annotated tag. Unset for a lightweight tag.
+  optional string message = 3;
+}
+
+// ListBranchesRequest is the input of ListBranches.
+message ListBranchesRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // Only branches whose name contains this text, compared
+  // case-insensitively. Empty means all. At most 255 bytes.
+  string query = 2;
+
+  // Maximum number of branches to return. 0 means the default of 50.
+  // Values above 100 are treated as 100. Negative values are rejected.
+  int32 page_size = 3;
+
+  // Token from a previous response's next_page_token, to get the next
+  // page. Empty for the first page. Tokens are opaque, and valid only with
+  // the same repository_id.
+  string page_token = 4;
+}
+
+// ListBranchesResponse is the output of ListBranches.
+message ListBranchesResponse {
+  // Branches on this page.
+  repeated Branch branches = 1;
+
+  // Token for the next page. Empty if this is the last page.
+  string next_page_token = 2;
+}
+
+// ListTagsRequest is the input of ListTags.
+message ListTagsRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // Maximum number of tags to return, as in ListBranchesRequest.
+  int32 page_size = 2;
+
+  // Token from a previous response, as in ListBranchesRequest.
+  string page_token = 3;
+}
+
+// ListTagsResponse is the output of ListTags.
+message ListTagsResponse {
+  // Tags on this page.
+  repeated Tag tags = 1;
+
+  // Token for the next page. Empty if this is the last page.
+  string next_page_token = 2;
+}

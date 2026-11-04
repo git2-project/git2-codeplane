@@ -22,7 +22,7 @@
 - **Branch protection**: a pre-receive hook that refuses pushes to protected branches.
 - **Diff and merge**: the engine behind merge requests in Dash.
 
-Built on `git` and `go-git`. Other services never touch repository files directly; they go through the `git/v1` gRPC API.
+Built on the `git` CLI. Other services never touch repository files directly; they go through the `git/v1` gRPC API.
 
 ## Status
 

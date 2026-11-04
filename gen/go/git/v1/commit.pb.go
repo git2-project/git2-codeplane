@@ -5,9 +5,13 @@
 // Rules shared by every RPC here:
 //   - ref names what to read: a branch ("main"), a tag ("v1.0.0"), a full
 //     ref ("refs/heads/main", "refs/tags/v1.0.0") or a full 40-character
-//     commit SHA. Empty means the repository's default branch. A branch
-//     wins over a tag with the same name. Each answer carries the commit
-//     it read, so links built from it stay stable when the branch moves.
+//     commit SHA; only GetCommit takes a short SHA. Empty means the
+//     repository's default branch. A branch wins over a tag with the same
+//     name. Each answer carries the commit it read, so links built from it
+//     stay stable when the branch moves.
+//   - The default branch does not exist until something is pushed to it. A
+//     repository with commits only on other branches answers NOT_FOUND to
+//     an empty ref; ListBranches shows what it has.
 //   - path is relative to the repository root, without a leading or
 //     trailing "/", and without empty, "." or ".." parts. Empty means the
 //     root. It is matched literally: "*" is a file name, not a pattern.

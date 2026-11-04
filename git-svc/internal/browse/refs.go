@@ -23,9 +23,11 @@ type Branch struct {
 // Tag is one tag.
 type Tag struct {
 	Name      string
-	Commit    *Commit // nil if the tag does not point to a commit
+	Commit    *Commit // nil if the tag does not lead to a commit
 	Annotated bool
 	Message   string // message of an annotated tag
+
+	nested string // raw name of a tag that points to another tag, until Commit is found
 }
 
 // BranchPage is one page of ListBranches.
@@ -115,12 +117,15 @@ func (s *Service) ListTags(ctx context.Context, id uuid.UUID, pageSize int32, pa
 		case "tag":
 			t.Annotated = true
 			t.Message = clean(strings.TrimRight(rec[3], "\n"))
-			if rec[4] == "commit" {
+			switch rec[4] {
+			case "commit":
 				c, err := parseCommit(rec[peeled : peeled+commitFields])
 				if err != nil {
 					return TagPage{}, err
 				}
 				t.Commit = &c
+			case "tag":
+				t.nested = rec[0]
 			}
 		case "commit":
 			c, err := parseCommit(rec[direct : direct+commitFields])
@@ -134,7 +139,32 @@ func (s *Service) ListTags(ctx context.Context, id uuid.UUID, pageSize int32, pa
 		items = append(items, sorted[Tag]{key: refKey{Time: date, Name: rec[0]}, item: t})
 	}
 	page, next := paginate(items, after, size, id)
+	// Only this page's nested tags cost git calls, so pushing many of them
+	// cannot slow down every request.
+	for i := range page {
+		if page[i].nested == "" {
+			continue
+		}
+		if page[i].Commit, err = s.peelTag(ctx, r.dir, page[i].nested); err != nil {
+			return TagPage{}, err
+		}
+	}
 	return TagPage{Tags: page, NextPageToken: next}, nil
+}
+
+// peelTag returns the commit a tag leads to through other tags, or nil if
+// it leads to a tree or a file. It is needed because the "*" atoms of
+// for-each-ref may stop after one tag, depending on git's version.
+func (s *Service) peelTag(ctx context.Context, dir, name string) (*Commit, error) {
+	sha, ok, err := s.revParse(ctx, dir, "refs/tags/"+name+"^{commit}")
+	if err != nil || !ok {
+		return nil, err
+	}
+	c, err := s.readCommit(ctx, dir, sha)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
 // refKey orders refs: by Rank, then newest Time first, then by Name in

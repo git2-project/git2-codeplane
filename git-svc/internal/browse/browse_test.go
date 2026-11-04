@@ -251,3 +251,26 @@ func TestEmptyRepository(t *testing.T) {
 	_, err = e.svc.GetBlob(t.Context(), id, "", "README.md")
 	wantErr(t, "GetBlob", err, ErrRefNotFound)
 }
+
+func TestDefaultBranchWithoutCommits(t *testing.T) {
+	e := newEnv(t)
+	id := e.newRepo(t)
+	w := e.newWork(t, id)
+	c := w.commit(t, 1000, "first", map[string]string{"a.txt": "a\n"})
+	w.push(t, "HEAD:refs/heads/dev")
+
+	// Not empty, but the default branch main does not exist.
+	_, err := e.svc.GetTree(t.Context(), id, "", "")
+	wantErr(t, "GetTree", err, ErrRefNotFound)
+	_, err = e.svc.ListCommits(t.Context(), id, "", "", 0, "")
+	wantErr(t, "ListCommits", err, ErrRefNotFound)
+
+	// The branch that exists can be found and read.
+	page, err := e.svc.ListBranches(t.Context(), id, "", 0, "")
+	if err != nil || branchNames(page.Branches) != "dev" || page.Branches[0].Default {
+		t.Errorf("ListBranches() = %+v, %v; want dev, not default", page.Branches, err)
+	}
+	if tree, err := e.svc.GetTree(t.Context(), id, "dev", ""); err != nil || tree.CommitSHA != c {
+		t.Errorf("GetTree(dev) = %+v, %v; want commit %s", tree, err, c)
+	}
+}

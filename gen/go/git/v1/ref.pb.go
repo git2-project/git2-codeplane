@@ -94,8 +94,8 @@ type Tag struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Name without the "refs/tags/" prefix, for example "v1.0.0".
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// The commit the tag points to. Unset for the rare tag that points to a
-	// tree or a file.
+	// The commit the tag points to, also through other tags. Unset for the
+	// rare tag that leads to a tree or a file.
 	Commit *Commit `protobuf:"bytes,2,opt,name=commit,proto3" json:"commit,omitempty"`
 	// Message of an annotated tag. Unset for a lightweight tag.
 	Message       *string `protobuf:"bytes,3,opt,name=message,proto3,oneof" json:"message,omitempty"`

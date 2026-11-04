@@ -49,8 +49,8 @@ message Tag {
   // Name without the "refs/tags/" prefix, for example "v1.0.0".
   string name = 1;
 
-  // The commit the tag points to. Unset for the rare tag that points to a
-  // tree or a file.
+  // The commit the tag points to, also through other tags. Unset for the
+  // rare tag that leads to a tree or a file.
   Commit commit = 2;
 
   // Message of an annotated tag. Unset for a lightweight tag.

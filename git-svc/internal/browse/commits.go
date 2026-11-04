@@ -112,14 +112,10 @@ func (s *Service) GetCommit(ctx context.Context, id uuid.UUID, sha string) (Comm
 	if err != nil {
 		return CommitDetail{}, err
 	}
-	commits, err := s.logCommits(ctx, r.dir, "-1", full)
+	c, err := s.readCommit(ctx, r.dir, full)
 	if err != nil {
 		return CommitDetail{}, err
 	}
-	if len(commits) != 1 {
-		return CommitDetail{}, fmt.Errorf("git log printed %d commits for %s", len(commits), full)
-	}
-	c := commits[0]
 
 	// The two trees to compare: the first parent's and the commit's, or
 	// the empty tree's for a root commit.
@@ -139,6 +135,18 @@ func (s *Service) GetCommit(ctx context.Context, id uuid.UUID, sha string) (Comm
 		return CommitDetail{}, err
 	}
 	return detail, nil
+}
+
+// readCommit returns the commit with this full SHA.
+func (s *Service) readCommit(ctx context.Context, dir, sha string) (Commit, error) {
+	commits, err := s.logCommits(ctx, dir, "-1", sha)
+	if err != nil {
+		return Commit{}, err
+	}
+	if len(commits) != 1 {
+		return Commit{}, fmt.Errorf("git log printed %d commits for %s", len(commits), sha)
+	}
+	return commits[0], nil
 }
 
 // resolveCommit turns a full or short SHA into the full SHA of a commit.

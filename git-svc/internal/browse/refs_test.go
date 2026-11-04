@@ -110,6 +110,39 @@ func TestListTags(t *testing.T) {
 	}
 }
 
+func TestListTagsThroughOtherTags(t *testing.T) {
+	e := newEnv(t)
+	s := newSample(t, e)
+	s.w.git(t, 1000, "", "tag", "-a", "-m", "inner", "inner", s.c2)
+	s.w.git(t, 2000, "", "tag", "-a", "-m", "outer", "outer", "inner")
+	s.w.git(t, 3000, "", "tag", "-a", "-m", "outermost", "outermost", "outer")
+	readme := s.c3 + ":README.md"
+	s.w.git(t, 0, "", "tag", "file-light", readme)
+	s.w.git(t, 4000, "", "tag", "-a", "-m", "file", "file", readme)
+	s.w.git(t, 5000, "", "tag", "-a", "-m", "of file", "of-file", "file")
+	s.w.push(t, "--tags")
+
+	page, err := e.svc.ListTags(t.Context(), s.id, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tags) != 6 {
+		t.Fatalf("tags = %q, want 6", tagNames(page.Tags))
+	}
+	for _, tag := range page.Tags {
+		switch tag.Name {
+		case "inner", "outer", "outermost":
+			if tag.Commit == nil || tag.Commit.SHA != s.c2 || tag.Message != tag.Name {
+				t.Errorf("%s = %+v, want its own message and commit %s", tag.Name, tag, s.c2)
+			}
+		default:
+			if tag.Commit != nil {
+				t.Errorf("%s has commit %s, want none: it leads to a file", tag.Name, tag.Commit.SHA)
+			}
+		}
+	}
+}
+
 func branchNames(bs []Branch) string {
 	var names []string
 	for _, b := range bs {

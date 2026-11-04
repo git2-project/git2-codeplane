@@ -5,9 +5,9 @@
 
 ## Context
 
-Dash's code browser (WBS-6.1, Bilge, W2–W3, zero float) shows branches, tags, directories, files and commits. The dash-api contract v0 (git2 branch `feat/dash-api-contract`, `contracts/dash-api/openapi.yaml`) defines its endpoints: `/branches`, `/tags`, `/tree`, `/blob`, `/raw`, `/commits` and `/commits/{sha}`. Only git-svc may touch repository files, so each endpoint needs a git-svc RPC behind it. ci-svc also needs to read one file (`.git2-ci.yml`) at a commit.
+Dash's code browser (WBS-6.1, Bilge, W2–W3, zero float) shows branches, tags, directories, files and commits. The dash-api contract v0 (git2 PR #17, `contracts/dash-api/openapi.yaml`) defines its endpoints: `/branches`, `/tags`, `/tree`, `/blob`, `/raw`, `/commits` and `/commits/{sha}`. Only git-svc may touch repository files, so each endpoint needs a git-svc RPC behind it. ci-svc also needs to read one file (`.git2-ci.yml`) at a commit.
 
-The dash-api contract left some details open. Bilge had no PR open yet, so we assumed the answers below and ask Bilge to review them with this change.
+The dash-api contract left some details open. Dash had no code-browser PR open yet, so we assumed the answers below and ask Bilge to review them with this change.
 
 ## Decision
 
@@ -29,6 +29,8 @@ Commit IDs are 40-character SHA-1, as the dash-api contract assumes: git-svc cre
 
 **Refs.** `ref` is a branch, a tag, `refs/heads/…`, `refs/tags/…` or a full SHA; empty means the default branch. A branch wins over a tag with the same name (git itself prefers the tag; the code browser's branch picker should win). Revision syntax such as `main~1`, `main:path` or `@{…}` is rejected, which keeps every ref a plain name. Each answer returns the commit it read, so links stay stable when a branch moves.
 
+A short SHA works only in `GetCommit`, not as a `ref`: links are built from the full SHA that answers return, and a prefix would add its own rules (a branch named like one, a prefix that matches several objects). Accepting it later breaks nobody, so it can wait for a real need.
+
 **Paths** are relative, without empty, `.` or `..` parts, at most 4096 bytes. They reach git only after `--` and with `--literal-pathspecs`, so `*` or `[1]` are file names, not patterns.
 
 **Answers built for the UI:**
@@ -48,5 +50,6 @@ Commit IDs are 40-character SHA-1, as the dash-api contract assumes: git-svc cre
 - dash-api implements the code browser on these RPCs. The `Blob.language`, `Signature.user` and `Branch.protected` fields of its contract are filled by dash-api (`protected` is false until WBS-7.1).
 - ci-svc can read `.git2-ci.yml` with `GetBlob` (`ref` = the pushed commit).
 - The diff code is the base for `DiffService` (WBS-8.1, W4): comparing branches uses the same parsing and limits.
+- The default branch does not exist until something is pushed to it. A repository with commits only on other branches (`git push origin master` when the default is `main`) is not empty, but an empty `ref` answers `NOT_FOUND`, and Dash offers the branches instead. Moving HEAD on the first push would be a new rule for every repository, so it is not done here.
 - A file or ref whose name is not UTF-8 is listed with U+FFFD and cannot be opened. git2 does not create such names; only a push can.
 - Creating and deleting branches and tags through the API is still to come; today they change only by push.

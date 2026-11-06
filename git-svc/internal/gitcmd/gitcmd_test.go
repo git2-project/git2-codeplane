@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -151,7 +153,11 @@ func TestStreamStopsWhenCanceled(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- r.Stream(ctx, StreamOptions{Stdin: pr, Stdout: io.Discard}, "hash-object", "--stdin")
+		done <- r.Stream(ctx, StreamOptions{
+			Stdin:     pr,
+			StopStdin: func() { _ = pr.Close() },
+			Stdout:    io.Discard,
+		}, "hash-object", "--stdin")
 	}()
 	time.Sleep(200 * time.Millisecond) // let git start and block on stdin
 	cancel()
@@ -161,9 +167,102 @@ func TestStreamStopsWhenCanceled(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Stream() error = %v, want context.Canceled", err)
 		}
+		var gitErr *Error
+		if !errors.As(err, &gitErr) || gitErr.ExitCode != -1 {
+			t.Errorf("Stream() error = %#v, want *Error with exit code -1: git was stopped", err)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Stream() did not return after its context was canceled")
 	}
+}
+
+// Git can exit without reading all of its input, as upload-pack does once it
+// has answered. Stream ends the blocked read and only then returns, so the
+// caller can use what the read was reading from.
+func TestStreamStopsABlockedReadBeforeReturning(t *testing.T) {
+	r, _ := newRunner(t)
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	in := &activeReads{r: pr}
+	var stops atomic.Int32
+
+	err := r.Stream(t.Context(), StreamOptions{
+		Stdin: in,
+		StopStdin: func() {
+			stops.Add(1)
+			_ = pr.Close()
+		},
+		Stdout: io.Discard,
+	}, "version") // exits at once, without reading its input
+
+	if err != nil {
+		t.Errorf("Stream() error = %v, want nil: git did not need its input", err)
+	}
+	if got := stops.Load(); got != 1 {
+		t.Errorf("StopStdin was called %d times, want 1", got)
+	}
+	if got := in.n.Load(); got != 0 {
+		t.Errorf("%d reads still running after Stream() returned", got)
+	}
+}
+
+func TestStreamDoesNotStopAnInputThatEnded(t *testing.T) {
+	r, _ := newRunner(t)
+	err := r.Stream(t.Context(), StreamOptions{
+		Stdin:     strings.NewReader("hello\n"),
+		StopStdin: func() { t.Error("StopStdin was called for an input that ended") },
+		Stdout:    io.Discard,
+	}, "hash-object", "--stdin")
+	if err != nil {
+		t.Errorf("Stream() error = %v", err)
+	}
+}
+
+func TestStreamReportsAFailedRead(t *testing.T) {
+	r, _ := newRunner(t)
+	broken := errors.New("broken input")
+
+	// hash-object sees the end of its input and exits successfully, but the
+	// object it hashed is not what the caller meant to send.
+	err := r.Stream(t.Context(), StreamOptions{Stdin: iotest.ErrReader(broken), Stdout: io.Discard},
+		"hash-object", "--stdin")
+
+	if !errors.Is(err, broken) {
+		t.Fatalf("Stream() error = %v, want the read error", err)
+	}
+	var gitErr *Error
+	if !errors.As(err, &gitErr) || gitErr.ExitCode != 0 {
+		t.Errorf("Stream() error = %#v, want *Error with exit code 0", err)
+	}
+}
+
+func TestStreamReportsAFailedReadAndGitsFailure(t *testing.T) {
+	r, _ := newRunner(t)
+	broken := errors.New("broken input")
+
+	// Outside a repository, receive-pack fails whatever its input is.
+	err := r.Stream(t.Context(), StreamOptions{Stdin: iotest.ErrReader(broken), Stdout: io.Discard},
+		"receive-pack", "--stateless-rpc", filepath.Join(t.TempDir(), "missing.git"))
+
+	if !errors.Is(err, broken) {
+		t.Errorf("Stream() error = %v, want the read error", err)
+	}
+	var gitErr *Error
+	if !errors.As(err, &gitErr) || gitErr.ExitCode <= 0 {
+		t.Errorf("Stream() error = %#v, want *Error with git's exit code", err)
+	}
+}
+
+// activeReads counts the reads in progress.
+type activeReads struct {
+	r io.Reader
+	n atomic.Int32
+}
+
+func (a *activeReads) Read(p []byte) (int, error) {
+	a.n.Add(1)
+	defer a.n.Add(-1)
+	return a.r.Read(p)
 }
 
 func TestCheckVersion(t *testing.T) {

@@ -37,31 +37,47 @@ exec cat > "$GIT2_PUSHED_REFS"
 // hookPerm makes the hook executable for git-svc's user.
 const hookPerm = 0o750
 
-// recordTimeout bounds the work after git finished a push: finding forced
-// updates and writing the event.
+// recordTimeout bounds writing the event of a push.
 const recordTimeout = 30 * time.Second
 
 // hookCheckTimeout bounds the startup run of the hook.
 const hookCheckTimeout = 10 * time.Second
 
 // installHooks writes git-svc's hooks into dir, replacing older versions.
-// The file is written next to the hook and renamed over it, so a push
-// never runs a half-written hook.
+// The file is written under a name of its own and renamed over the hook, so a
+// push never runs a half-written hook, even if two git-svc processes start on
+// one storage root at the same moment. Git ignores the temporary name if a
+// crash leaves the file behind.
 func installHooks(dir string) error {
-	path := filepath.Join(dir, "post-receive")
-	tmp := path + ".tmp"
-	//nolint:gosec // G306: a hook must be executable.
-	if err := os.WriteFile(tmp, []byte(postReceiveHook), hookPerm); err != nil {
-		return fmt.Errorf("install post-receive hook: %w", err)
-	}
-	//nolint:gosec // G302: WriteFile keeps the mode of an existing file.
-	if err := os.Chmod(tmp, hookPerm); err != nil {
-		return fmt.Errorf("install post-receive hook: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := writeHook(dir, "post-receive", postReceiveHook); err != nil {
 		return fmt.Errorf("install post-receive hook: %w", err)
 	}
 	return nil
+}
+
+func writeHook(dir, name, content string) (err error) {
+	f, err := os.CreateTemp(dir, name+"-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp)
+		}
+	}()
+	_, err = f.WriteString(content)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	//nolint:gosec // G302: a hook must be executable; CreateTemp makes files 0600.
+	if err := os.Chmod(tmp, hookPerm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dir, name))
 }
 
 // checkHooks runs the installed hook once, without GIT2_PUSHED_REFS, so it
@@ -109,10 +125,9 @@ func (s *Server) removeRefsFile(path string) {
 
 // recordPush writes the RepositoryPushed event for the refs a push
 // updated, if any. git has finished, so the push has happened: the work
-// runs on a context of its own, even if the client is gone.
+// runs on contexts of its own, even if the client is gone.
 func (s *Server) recordPush(r *http.Request, id, pusher uuid.UUID, refsFile string) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), recordTimeout)
-	defer cancel()
+	ctx := context.WithoutCancel(r.Context())
 	log := s.opts.Log.With(slog.String("repository_id", id.String()))
 
 	data, err := os.ReadFile(refsFile) //nolint:gosec // G304: a file git-svc created under its storage root.
@@ -128,11 +143,11 @@ func (s *Server) recordPush(r *http.Request, id, pusher uuid.UUID, refsFile stri
 	if len(updates) == 0 {
 		return // every ref was rejected, or the push changed nothing
 	}
-	dir := s.opts.Layout.RepoPath(id)
-	for i := range updates {
-		updates[i].Forced = s.forced(ctx, dir, updates[i])
-	}
+	s.checkForced(ctx, log, s.opts.Layout.RepoPath(id), updates)
 
+	// A full budget of its own: a slow check must not cost the event.
+	ctx, cancel := context.WithTimeout(ctx, recordTimeout)
+	defer cancel()
 	err = s.opts.Pushes.RecordPush(ctx, repo.Push{RepositoryID: id, PusherID: pusher, RefUpdates: updates})
 	switch {
 	case errors.Is(err, repo.ErrNotFound):
@@ -164,25 +179,44 @@ func parsePushedRefs(data string) ([]repo.RefUpdate, error) {
 	return updates, nil
 }
 
-// forced reports whether an update was not a fast-forward, that is, the
-// old object is not an ancestor of the new one. Creating or deleting a ref
-// is never forced.
-func (s *Server) forced(ctx context.Context, dir string, u repo.RefUpdate) bool {
+// checkForced sets Forced on each update, within a time budget of its own.
+// Every update of an existing ref needs a git call, and a push with --mirror
+// can have thousands. When the budget runs out, the remaining updates are
+// repo.ForcedUnknown and the event is still written.
+func (s *Server) checkForced(ctx context.Context, log *slog.Logger, dir string, updates []repo.RefUpdate) {
+	ctx, cancel := context.WithTimeout(ctx, s.opts.ForcedCheckTimeout)
+	defer cancel()
+
+	for i := range updates {
+		updates[i].Forced = s.forced(ctx, log, dir, updates[i])
+	}
+	if ctx.Err() != nil {
+		log.WarnContext(ctx, "the check for forced updates ran out of time; the event leaves the rest unknown",
+			slog.Int("ref_updates", len(updates)), slog.Duration("budget", s.opts.ForcedCheckTimeout))
+	}
+}
+
+// forced reports whether an update was not a fast-forward, that is, the old
+// object is not an ancestor of the new one. Creating or deleting a ref is
+// never forced.
+func (s *Server) forced(ctx context.Context, log *slog.Logger, dir string, u repo.RefUpdate) repo.Forced {
 	if isZeroID(u.OldSHA) || isZeroID(u.NewSHA) {
-		return false
+		return repo.ForcedNo
 	}
 	_, err := s.opts.Git.Run(ctx, dir, "merge-base", "--is-ancestor", u.OldSHA, u.NewSHA)
 	if err == nil {
-		return false
+		return repo.ForcedNo
 	}
 	var gitErr *gitcmd.Error
-	if !errors.As(err, &gitErr) || gitErr.ExitCode != 1 {
-		// Not commits (a tag moved from one tree to another, say), so there
-		// is no ancestry to keep; or git failed. Either way it was no
-		// fast-forward that git could prove.
-		s.opts.Log.WarnContext(ctx, "check for a forced update", slog.String("ref", u.Ref), slog.String("err", err.Error()))
+	if errors.As(err, &gitErr) && gitErr.ExitCode == 1 {
+		return repo.ForcedYes
 	}
-	return true
+	// The objects are not commits (a tag moved from one tree to another, say),
+	// git failed, or the budget ran out, which checkForced logs once.
+	if ctx.Err() == nil {
+		log.WarnContext(ctx, "check for a forced update", slog.String("ref", u.Ref), slog.String("err", err.Error()))
+	}
+	return repo.ForcedUnknown
 }
 
 // isObjectID reports whether s is a full SHA-1 or SHA-256 object ID in

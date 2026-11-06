@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -47,7 +48,7 @@ func TestCloneAndPush(t *testing.T) {
 				"push", "--quiet", "origin", "HEAD:refs/heads/main")
 
 			env.wantPushes(t, repo.Push{RepositoryID: id, PusherID: env.user, RefUpdates: []repo.RefUpdate{
-				{Ref: "refs/heads/main", OldSHA: zeroID, NewSHA: sha},
+				{Ref: "refs/heads/main", OldSHA: zeroID, NewSHA: sha, Forced: repo.ForcedNo},
 			}})
 
 			again := filepath.Join(t.TempDir(), "a")
@@ -93,11 +94,14 @@ func TestPushRefUpdates(t *testing.T) {
 
 	got := env.pushes.all()
 	want := [][]repo.RefUpdate{
-		{{Ref: "refs/heads/main", OldSHA: zeroID, NewSHA: first}},
-		{{Ref: "refs/heads/main", OldSHA: first, NewSHA: second}},
-		{{Ref: "refs/heads/main", OldSHA: second, NewSHA: rewritten, Forced: true}},
-		{{Ref: "refs/heads/feature", OldSHA: zeroID, NewSHA: rewritten}, {Ref: "refs/tags/v1", OldSHA: zeroID, NewSHA: rewritten}},
-		{{Ref: "refs/heads/feature", OldSHA: rewritten, NewSHA: zeroID}},
+		{{Ref: "refs/heads/main", OldSHA: zeroID, NewSHA: first, Forced: repo.ForcedNo}},
+		{{Ref: "refs/heads/main", OldSHA: first, NewSHA: second, Forced: repo.ForcedNo}},
+		{{Ref: "refs/heads/main", OldSHA: second, NewSHA: rewritten, Forced: repo.ForcedYes}},
+		{
+			{Ref: "refs/heads/feature", OldSHA: zeroID, NewSHA: rewritten, Forced: repo.ForcedNo},
+			{Ref: "refs/tags/v1", OldSHA: zeroID, NewSHA: rewritten, Forced: repo.ForcedNo},
+		},
+		{{Ref: "refs/heads/feature", OldSHA: rewritten, NewSHA: zeroID, Forced: repo.ForcedNo}},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("%d pushes recorded, want %d: %+v", len(got), len(want), got)
@@ -131,10 +135,10 @@ func TestRejectedRefsAreNotRecorded(t *testing.T) {
 
 	env.wantPushes(t,
 		repo.Push{RepositoryID: id, PusherID: env.user, RefUpdates: []repo.RefUpdate{
-			{Ref: "refs/heads/main", OldSHA: zeroID, NewSHA: base},
+			{Ref: "refs/heads/main", OldSHA: zeroID, NewSHA: base, Forced: repo.ForcedNo},
 		}},
 		repo.Push{RepositoryID: id, PusherID: env.user, RefUpdates: []repo.RefUpdate{
-			{Ref: "refs/heads/bob", OldSHA: zeroID, NewSHA: mine},
+			{Ref: "refs/heads/bob", OldSHA: zeroID, NewSHA: mine, Forced: repo.ForcedNo},
 		}},
 	)
 }
@@ -381,7 +385,7 @@ func TestConcurrentPushesAreRecordedSeparately(t *testing.T) {
 	slices.SortFunc(got, func(a, b repo.RefUpdate) int { return strings.Compare(a.Ref, b.Ref) })
 	var want []repo.RefUpdate
 	for i := range n {
-		want = append(want, repo.RefUpdate{Ref: fmt.Sprintf("refs/heads/b%d", i), OldSHA: zeroID, NewSHA: shas[i]})
+		want = append(want, repo.RefUpdate{Ref: fmt.Sprintf("refs/heads/b%d", i), OldSHA: zeroID, NewSHA: shas[i], Forced: repo.ForcedNo})
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("recorded %+v, want %+v", got, want)
@@ -449,8 +453,42 @@ func TestInstallHooks(t *testing.T) {
 	if fi, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm()&0o100 == 0) {
 		t.Errorf("hook mode = %v (error %v), want executable", fi.Mode(), err)
 	}
-	if _, err := os.Stat(path + ".tmp"); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("temporary file left behind (stat error %v)", err)
+	wantOnlyHook(t, dir)
+}
+
+// Two git-svc processes starting on one storage root must not publish a
+// truncated hook: git would run it and the push events would be lost.
+func TestInstallHooksConcurrently(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows refuses to rename over a file that another rename has open")
+	}
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			if err := installHooks(dir); err != nil {
+				t.Errorf("installHooks() error = %v", err)
+			}
+		})
+	}
+	wg.Wait()
+
+	got, err := os.ReadFile(filepath.Join(dir, "post-receive")) //nolint:gosec // G304: the test's own temp file.
+	if err != nil || string(got) != postReceiveHook {
+		t.Errorf("hook = %q (error %v), want the current hook", got, err)
+	}
+	wantOnlyHook(t, dir)
+}
+
+// wantOnlyHook checks that no temporary file was left next to the hook.
+func wantOnlyHook(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "post-receive" {
+		t.Errorf("hooks directory holds %v, want only post-receive", entries)
 	}
 }
 
@@ -579,11 +617,21 @@ func newTestEnv(t *testing.T, configure ...func(*Options)) *testEnv {
 		t.Fatal(err)
 	}
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		env.requests.add(r)
 		env.srv.ServeHTTP(w, r)
 	}))
-	t.Cleanup(ts.Close)
+	// net/http recovers from a panic in a request, logs it and carries on, so
+	// a panic does not fail a test by itself.
+	var serverLog syncBuffer
+	ts.Config.ErrorLog = log.New(&serverLog, "", 0)
+	ts.Start()
+	t.Cleanup(func() {
+		ts.Close()
+		if logged := serverLog.String(); strings.Contains(logged, "panic") {
+			t.Errorf("the HTTP server panicked:\n%s", logged)
+		}
+	})
 	env.url = ts.URL
 	return env
 }
@@ -731,9 +779,12 @@ type fakePushes struct {
 	err    error
 }
 
-func (f *fakePushes) RecordPush(_ context.Context, p repo.Push) error {
+func (f *fakePushes) RecordPush(ctx context.Context, p repo.Push) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err // as the database would
+	}
 	if f.err != nil {
 		return f.err
 	}

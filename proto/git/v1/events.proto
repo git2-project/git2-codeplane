@@ -60,6 +60,11 @@ message RepositoryDeleted {
 // such loss. A push to a repository that is deleted at the same moment
 // may also produce no event. An event is never written for a push that
 // did not happen.
+//
+// The events of one repository have no guaranteed order: a push that
+// finished first can be recorded after a later one, and delivery retries can
+// reorder events too. old_sha and new_sha show how the updates of a ref
+// follow each other, so a consumer that needs the sequence uses them.
 message RepositoryPushed {
   // ID of the repository that was pushed to.
   string repository_id = 1;
@@ -92,8 +97,11 @@ message RefUpdate {
   // Object ID the ref points to after the push.
   string new_sha = 3;
 
-  // True if the update was not a fast-forward: old_sha is not an ancestor
-  // of new_sha, so commits were removed from the ref's history. Always
-  // false when the ref was created or deleted.
-  bool forced = 4;
+  // Whether the update rewrote the ref's history:
+  //   - true: not a fast-forward. old_sha is not an ancestor of new_sha, so
+  //     commits were removed from the ref's history.
+  //   - false: a fast-forward, or the ref was created or deleted.
+  //   - not set: git-svc could not tell, because the objects are not commits
+  //     or the check ran out of time on a push that updated very many refs.
+  optional bool forced = 4;
 }

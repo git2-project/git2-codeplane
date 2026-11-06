@@ -90,7 +90,12 @@ type StreamOptions struct {
 	Env []string
 	// Stdin is copied to git's standard input; nil means empty input.
 	Stdin io.Reader
-	// Stdout receives git's standard output as git writes it.
+	// StopStdin makes a blocked read from Stdin return. Stream calls it if a
+	// read is still blocked a moment after git exited. Stdin needs it unless
+	// its reads cannot block for long: Stream does not return during a read.
+	StopStdin func()
+	// Stdout receives git's standard output as git writes it. Its writes
+	// must not block for long: Stream does not return during a write.
 	Stdout io.Writer
 }
 
@@ -99,12 +104,14 @@ type StreamOptions struct {
 //
 // It has no timeout of its own: ctx bounds the call. When ctx ends, git
 // gets SIGTERM, so that it can remove its temporary files, and is killed
-// if it is still running after a short delay. On failure the error is an
-// *Error, and it wraps ctx.Err() if the call was canceled.
+// if it is still running after a short delay.
 //
-// Stream returns soon after git exits even if a read from Stdin is still
-// blocked, such as a request body from a stalled client; that read then
-// ends in the background when its owner closes it.
+// On failure the error is an *Error. It wraps ctx.Err() if the call was
+// canceled, and the read error if git's input was cut short, even if git
+// then exited successfully. Git not reading all of its input is no failure.
+//
+// When Stream returns it no longer uses Stdin or Stdout, so the caller may
+// inspect them or release what they read from.
 func (r *Runner) Stream(ctx context.Context, opts StreamOptions, args ...string) error {
 	stderr := &limitedBuffer{max: maxStderr}
 
@@ -116,8 +123,8 @@ func (r *Runner) Stream(ctx context.Context, opts StreamOptions, args ...string)
 	cmd.Cancel = func() error { return interrupt(cmd.Process) }
 	cmd.WaitDelay = waitDelay
 
-	// With cmd.Stdin set, Wait would also wait for the copy from Stdin, for
-	// as long as a read blocks; this copy is waited for only briefly.
+	// With cmd.Stdin set, Wait would also wait for the copy from Stdin, and
+	// would have no way to end a read that blocks; Stream does that itself.
 	var stdin io.WriteCloser
 	if opts.Stdin != nil {
 		var err error
@@ -128,26 +135,65 @@ func (r *Runner) Stream(ctx context.Context, opts StreamOptions, args ...string)
 	if err := cmd.Start(); err != nil {
 		return newError(ctx, args, stderr, err)
 	}
-	copied := make(chan struct{})
-	go func() {
-		defer close(copied)
-		if stdin != nil {
-			// A failed write means git stopped reading; its exit status
-			// says whether that mattered.
-			_, _ = io.Copy(stdin, opts.Stdin)
-			_ = stdin.Close()
-		}
-	}()
+	copied := make(chan error, 1)
+	if stdin != nil {
+		go func() { copied <- copyStdin(stdin, opts.Stdin) }()
+	} else {
+		copied <- nil
+	}
 
-	err := cmd.Wait() // closes stdin once git has exited
+	waitErr := cmd.Wait() // closes stdin once git has exited
+
+	var readErr error
 	select {
-	case <-copied:
+	case readErr = <-copied:
 	case <-time.After(waitDelay):
+		// Git did not need the rest of its input. The error of the read
+		// stopped here says nothing about git, so it is dropped.
+		if opts.StopStdin != nil {
+			opts.StopStdin()
+		}
+		<-copied //nolint:errcheck // Stream stopped this read itself.
 	}
-	if err != nil {
-		return newError(ctx, args, stderr, err)
+
+	if waitErr == nil && readErr == nil {
+		return nil
 	}
-	return nil
+	gitErr := newError(ctx, args, stderr, waitErr)
+	switch {
+	case readErr == nil:
+	case gitErr.Err == nil: // git exited successfully on a shortened input
+		gitErr.ExitCode = 0
+		gitErr.Err = fmt.Errorf("read input: %w", readErr)
+	default:
+		gitErr.Err = fmt.Errorf("read input: %w (%w)", readErr, gitErr.Err)
+	}
+	return gitErr
+}
+
+// copyStdin copies src to git's standard input and closes it. It returns
+// the error of a failed read. A failed write means git stopped reading; its
+// exit status says whether that mattered.
+func copyStdin(stdin io.WriteCloser, src io.Reader) error {
+	in := &readErrorKeeper{r: src}
+	_, _ = io.Copy(stdin, in)
+	_ = stdin.Close()
+	return in.err
+}
+
+// readErrorKeeper remembers why a read failed, which io.Copy cannot tell
+// apart from a failed write.
+type readErrorKeeper struct {
+	r   io.Reader
+	err error
+}
+
+func (k *readErrorKeeper) Read(p []byte) (int, error) {
+	n, err := k.r.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		k.err = err
+	}
+	return n, err
 }
 
 // interrupt asks git to stop. Git removes its temporary files (lock files,
@@ -163,8 +209,11 @@ func interrupt(p *os.Process) error {
 // newError builds the *Error for a failed call.
 func newError(ctx context.Context, args []string, stderr *limitedBuffer, err error) *Error {
 	gitErr := &Error{Args: args, ExitCode: -1, Stderr: strings.TrimSpace(stderr.String()), Err: err}
+	// When ctx ended, git was stopped and its exit status means nothing: on
+	// Windows a killed process even reports exit code 1.
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		gitErr.Err = ctxErr
+		return gitErr
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
@@ -177,7 +226,7 @@ func newError(ctx context.Context, args []string, stderr *limitedBuffer, err err
 // paths, so an Error must never be shown to API clients.
 type Error struct {
 	Args     []string
-	ExitCode int // -1 if git did not exit normally
+	ExitCode int // -1 if git did not exit normally; 0 if only its input failed
 	Stderr   string
 	Err      error
 }

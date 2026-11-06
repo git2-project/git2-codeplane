@@ -19,6 +19,12 @@ the right month folder and add a line at the top of that month's table below.
 
 ---
 
+## 2026 · November
+
+| Date | What changed | Affects | Tag |
+|---|---|---|---|
+| [6 Nov](2026/11/06_11.md) | Port 9080 drops a client that sends or reads nothing for 5 minutes, runs at most 32 Git operations at once (then `503`) and limits the ref updates of a push to 64 MiB (then `413`). `RefUpdate.forced` can now be unknown (no key in the JSON), and events have no guaranteed order. Deploy: add the limits to the gateway contract. CI: treat a missing `forced` as unknown. | Deploy, CI | 🟠 Action |
+
 ## 2026 · October
 
 | Date | What changed | Affects | Tag |

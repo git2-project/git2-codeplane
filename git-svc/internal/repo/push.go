@@ -8,11 +8,39 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/outbox"
 )
+
+// Forced says whether a ref update rewrote the ref's history.
+type Forced int
+
+const (
+	// ForcedUnknown means git-svc could not tell: the objects are not commits,
+	// or the check did not finish in time.
+	ForcedUnknown Forced = iota
+	// ForcedNo means a fast-forward, or a ref that was created or deleted.
+	ForcedNo
+	// ForcedYes means the update was not a fast-forward: the old object is
+	// not an ancestor of the new one.
+	ForcedYes
+)
+
+// proto returns the value of RefUpdate.forced in the event, which is left
+// out when git-svc could not tell.
+func (f Forced) proto() *bool {
+	switch f {
+	case ForcedYes:
+		return proto.Bool(true)
+	case ForcedNo:
+		return proto.Bool(false)
+	default:
+		return nil
+	}
+}
 
 // RefUpdate is one ref changed by a push. Object IDs are lowercase hex; an
 // ID made only of zeros means "no object": the ref was created or deleted.
@@ -20,8 +48,7 @@ type RefUpdate struct {
 	Ref    string
 	OldSHA string
 	NewSHA string
-	// Forced is true when the update was not a fast-forward.
-	Forced bool
+	Forced Forced
 }
 
 // Push is a push that changed refs of a repository.
@@ -48,6 +75,10 @@ FOR SHARE`
 // locked against a concurrent delete, so the event of a push always comes
 // before the RepositoryDeleted of its repository. If the repository was
 // deleted meanwhile, RecordPush writes nothing and returns ErrNotFound.
+//
+// The events of two pushes to one repository have no guaranteed order: a
+// push can reach this point after a later one, whatever is locked here
+// (ADR 0012). Consumers follow old_sha and new_sha instead.
 func (s *Service) RecordPush(ctx context.Context, p Push) error {
 	if len(p.RefUpdates) == 0 {
 		return nil
@@ -70,7 +101,7 @@ func (s *Service) RecordPush(ctx context.Context, p Push) error {
 		}
 		for _, u := range p.RefUpdates {
 			event.RefUpdates = append(event.RefUpdates, &gitv1.RefUpdate{
-				Ref: u.Ref, OldSha: u.OldSHA, NewSha: u.NewSHA, Forced: u.Forced,
+				Ref: u.Ref, OldSha: u.OldSHA, NewSha: u.NewSHA, Forced: u.Forced.proto(),
 			})
 		}
 		return outbox.Write(ctx, tx, outbox.AggregateRepository, p.RepositoryID, event)

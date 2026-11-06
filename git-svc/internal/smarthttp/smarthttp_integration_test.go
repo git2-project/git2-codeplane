@@ -76,7 +76,7 @@ WHERE aggregate_id = $1 AND event_type = 'git.v1.RepositoryPushed'`, r.ID)
 			want := &gitv1.RepositoryPushed{
 				RepositoryId: r.ID.String(),
 				PusherId:     env.user.String(),
-				RefUpdates:   []*gitv1.RefUpdate{{Ref: "refs/heads/main", OldSha: zeroID, NewSha: sha}},
+				RefUpdates:   []*gitv1.RefUpdate{{Ref: "refs/heads/main", OldSha: zeroID, NewSha: sha, Forced: proto.Bool(false)}},
 			}
 			if !proto.Equal(got, want) {
 				t.Errorf("payload = %v, want %v", got, want)

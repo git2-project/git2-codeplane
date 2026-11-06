@@ -64,6 +64,63 @@ func TestRecordPushWithoutUpdates(t *testing.T) {
 	}
 }
 
+// An update whose kind git-svc could not tell has no "forced" in the payload,
+// so that a consumer can tell it from an update known not to be forced.
+func TestRecordPushForcedStates(t *testing.T) {
+	for _, mode := range testdb.Modes {
+		t.Run(string(mode), func(t *testing.T) {
+			svc, pool := newService(t, mode)
+			r, err := svc.Create(t.Context(), repo.CreateParams{OwnerID: newOwner(t, pool), Name: "payments"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			a, b := strings.Repeat("a", 40), strings.Repeat("b", 40)
+
+			err = svc.RecordPush(t.Context(), repo.Push{RepositoryID: r.ID, PusherID: uuid.New(), RefUpdates: []repo.RefUpdate{
+				{Ref: "refs/heads/yes", OldSHA: a, NewSHA: b, Forced: repo.ForcedYes},
+				{Ref: "refs/heads/no", OldSHA: a, NewSHA: b, Forced: repo.ForcedNo},
+				{Ref: "refs/heads/unknown", OldSHA: a, NewSHA: b, Forced: repo.ForcedUnknown},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// ->> reads a missing key as NULL.
+			rows, err := pool.Query(t.Context(), `
+SELECT u->>'ref', u->>'forced'
+FROM git_svc.outbox, jsonb_array_elements(payload->'refUpdates') AS u
+WHERE aggregate_id = $1 AND event_type = 'git.v1.RepositoryPushed'`, r.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]*string{}
+			for rows.Next() {
+				var ref string
+				var forced *string
+				if err := rows.Scan(&ref, &forced); err != nil {
+					t.Fatal(err)
+				}
+				got[ref] = forced
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(got) != 3 {
+				t.Fatalf("%d ref updates in the payload, want 3: %v", len(got), got)
+			}
+			for ref, want := range map[string]string{"refs/heads/yes": "true", "refs/heads/no": "false", "refs/heads/unknown": ""} {
+				switch forced := got[ref]; {
+				case forced == nil && want != "":
+					t.Errorf("%s: forced is missing, want %s", ref, want)
+				case forced != nil && *forced != want:
+					t.Errorf("%s: forced = %s, want %q", ref, *forced, want)
+				}
+			}
+		})
+	}
+}
+
 func newService(t *testing.T, mode testdb.Mode) (*repo.Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := testdb.Open(t, mode)

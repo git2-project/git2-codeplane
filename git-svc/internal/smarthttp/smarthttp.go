@@ -50,6 +50,18 @@ const (
 	// request after decompression. It holds the client's wants and haves,
 	// never a pack; git's own http-backend allows 10 MB.
 	DefaultMaxFetchRequestSize = 64 << 20 // 64 MiB
+	// DefaultMaxPushCommandsSize bounds the ref updates of one push after
+	// decompression, which git keeps in memory. 64 MiB is about 500,000 refs.
+	DefaultMaxPushCommandsSize = 64 << 20 // 64 MiB
+	// DefaultStallTimeout is how long one read from or write to a client may
+	// take. It matches the idle timeout of the gateway, so a stalled client
+	// costs the same on both.
+	DefaultStallTimeout = 5 * time.Minute
+	// DefaultMaxGitOperations bounds the clones, fetches, pushes and ref
+	// advertisements that run at once. Each runs at least one git process.
+	DefaultMaxGitOperations = 32
+	// DefaultForcedCheckTimeout bounds finding the forced updates of a push.
+	DefaultForcedCheckTimeout = 30 * time.Second
 )
 
 const (
@@ -58,10 +70,16 @@ const (
 	// readyTimeout bounds the readiness check.
 	readyTimeout = 2 * time.Second
 	// readHeaderTimeout and idleTimeout protect the server from clients
-	// that hold connections open. Bodies have no timeout: a large push
-	// can take long.
+	// that hold connections open. Bodies and responses are bounded by the
+	// stall timeout instead: a large push can take long, but not in silence.
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 2 * time.Minute
+	// bodyCloseGrace bounds looking for the end of a request body that git did
+	// not read to its end.
+	bodyCloseGrace = time.Second
+	// busyRetryAfter is the Retry-After header, in seconds, of the answer
+	// sent when too many Git operations are running.
+	busyRetryAfter = "30"
 )
 
 // Repositories finds live repositories.
@@ -87,10 +105,18 @@ type Options struct {
 	// Ready reports whether git-svc's dependencies are reachable; /readyz
 	// calls it. Nil means always ready.
 	Ready func(context.Context) error
-	// MaxPushSize and MaxFetchRequestSize are in bytes; zero means the
-	// default.
+	// MaxPushSize, MaxFetchRequestSize and MaxPushCommandsSize are in bytes;
+	// zero means the default, as for the limits below.
 	MaxPushSize         int64
 	MaxFetchRequestSize int64
+	MaxPushCommandsSize int64
+	// StallTimeout bounds one read from or write to a client.
+	StallTimeout time.Duration
+	// MaxGitOperations bounds the Git operations that run at once; more get
+	// 503 instead of waiting.
+	MaxGitOperations int
+	// ForcedCheckTimeout bounds finding the forced updates of a push.
+	ForcedCheckTimeout time.Duration
 }
 
 // Server is git-svc's HTTP server.
@@ -98,6 +124,9 @@ type Server struct {
 	opts Options
 	mux  *http.ServeMux
 	http *http.Server
+
+	// gitSlots holds one token per running Git operation.
+	gitSlots chan struct{}
 
 	// pushCtx bounds pushes instead of the request's context: once git has
 	// taken a push, the push completes and is recorded even if the client
@@ -115,6 +144,18 @@ func New(opts Options) (*Server, error) {
 	if opts.MaxFetchRequestSize <= 0 {
 		opts.MaxFetchRequestSize = DefaultMaxFetchRequestSize
 	}
+	if opts.MaxPushCommandsSize <= 0 {
+		opts.MaxPushCommandsSize = DefaultMaxPushCommandsSize
+	}
+	if opts.StallTimeout <= 0 {
+		opts.StallTimeout = DefaultStallTimeout
+	}
+	if opts.MaxGitOperations <= 0 {
+		opts.MaxGitOperations = DefaultMaxGitOperations
+	}
+	if opts.ForcedCheckTimeout <= 0 {
+		opts.ForcedCheckTimeout = DefaultForcedCheckTimeout
+	}
 	if err := installHooks(opts.Layout.HooksDir()); err != nil {
 		return nil, err
 	}
@@ -122,7 +163,7 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 
-	s := &Server{opts: opts, mux: http.NewServeMux()}
+	s := &Server{opts: opts, mux: http.NewServeMux(), gitSlots: make(chan struct{}, opts.MaxGitOperations)}
 	s.pushCtx, s.cancelPushes = context.WithCancel(context.Background())
 
 	s.mux.HandleFunc("GET /healthz", s.healthz)
@@ -162,11 +203,15 @@ func (s *Server) Shutdown(ctx context.Context) {
 // ServeHTTP routes a request and writes one log line for it.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	rec := &recorder{ResponseWriter: w}
+	rec := &recorder{ResponseWriter: w, rc: http.NewResponseController(w), stallTimeout: s.opts.StallTimeout}
 	body := &countingBody{ReadCloser: r.Body}
 	r.Body = body
 
 	s.mux.ServeHTTP(rec, r)
+	// net/http sends the end of the response after this method returns, and
+	// that write needs a deadline too. net/http clears it afterwards, so it
+	// does not reach the connection's next request.
+	rec.extendWriteDeadline()
 
 	status := rec.status
 	if status == 0 {
@@ -228,12 +273,14 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 }
 
 // recorder notes a response's status and size, and an error to log with
-// the request, for the access log.
+// the request, for the access log. It also puts a deadline on every write.
 type recorder struct {
 	http.ResponseWriter
-	status  int
-	written int64
-	err     error // logged, never sent to the client
+	rc           *http.ResponseController
+	stallTimeout time.Duration
+	status       int
+	written      int64
+	err          error // logged, never sent to the client
 }
 
 func (r *recorder) WriteHeader(code int) {
@@ -247,9 +294,21 @@ func (r *recorder) Write(p []byte) (int, error) {
 	if r.status == 0 {
 		r.status = http.StatusOK
 	}
+	r.extendWriteDeadline()
 	n, err := r.ResponseWriter.Write(p)
 	r.written += int64(n)
 	return n, err
+}
+
+// extendWriteDeadline gives the next write, and the flush after it, the stall
+// timeout to complete. Without a deadline a client that stops reading blocks
+// the write for good, and git with it: stopping git does not help, because
+// os/exec waits for the write that takes git's output to the client.
+//
+// The server's WriteTimeout cannot do this, as it would bound the whole
+// response, however fast the client reads.
+func (r *recorder) extendWriteDeadline() {
+	_ = r.rc.SetWriteDeadline(time.Now().Add(r.stallTimeout))
 }
 
 // Unwrap lets http.ResponseController reach the connection, to flush.

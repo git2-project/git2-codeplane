@@ -4,6 +4,7 @@
 //	<root>/tmp/<id>                       repositories being created
 //	<root>/trash/<id>.git                 deleted repositories awaiting purge
 //	<root>/home/                          HOME for git processes
+//	<root>/hooks/                         git-svc's Git hooks (core.hooksPath)
 //
 // <shard> is the first two hex characters of the repository ID, which
 // spreads repositories over 256 directories. Paths are derived only from
@@ -50,9 +51,14 @@ func (l *Layout) TrashDir() string { return filepath.Join(l.root, "trash") }
 // HomeDir returns the HOME directory for git processes.
 func (l *Layout) HomeDir() string { return filepath.Join(l.root, "home") }
 
+// HooksDir returns the directory of the hooks git-svc runs on pushes. It
+// replaces every repository's own hooks directory, so a hook inside a
+// repository never runs.
+func (l *Layout) HooksDir() string { return filepath.Join(l.root, "hooks") }
+
 // EnsureDirs creates the layout's directories if they do not exist.
 func (l *Layout) EnsureDirs() error {
-	for _, dir := range []string{l.ReposDir(), l.TmpDir(), l.TrashDir(), l.HomeDir()} {
+	for _, dir := range []string{l.ReposDir(), l.TmpDir(), l.TrashDir(), l.HomeDir(), l.HooksDir()} {
 		if err := os.MkdirAll(dir, dirPerm); err != nil {
 			return fmt.Errorf("create storage directory: %w", err)
 		}

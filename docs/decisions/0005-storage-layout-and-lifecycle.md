@@ -1,6 +1,6 @@
 # 0005. Storage layout and repository lifecycle
 
-- Status: Accepted
+- Status: Accepted, amended by [ADR 0012](0012-git-over-https.md) (a `hooks/` directory for the push hook)
 - Date: 2026-10-22
 
 ## Context

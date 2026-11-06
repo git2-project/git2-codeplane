@@ -13,6 +13,10 @@
 //     INTERNAL errors never contain file paths or other internal details.
 //   - Domain events (RepositoryCreated, ...) are defined in events.proto.
 //
+// Git clients do not use this API: `git clone`, `git fetch` and `git push`
+// go through the gateway to git-svc's smart HTTP port, not gRPC
+// (git2-codeplane ADR 0012).
+//
 // Planned services, not available yet:
 //   - RefService: list, create and delete branches and tags (W2-W3).
 //   - CommitService: commit history, trees and file contents for the code
@@ -21,8 +25,6 @@
 //     (W4-W5).
 //   - OperationService: merges (merge commit, squash, fast-forward) and
 //     conflict reports (W4-W5).
-//   - SmartHTTP: `git clone` and `git push` over HTTPS. Served by git-svc
-//     over HTTP, not gRPC, behind the gateway (W2-W3).
 syntax = "proto3";
 
 package git.v1;

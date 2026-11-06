@@ -3,7 +3,8 @@
 // Delivery:
 //   - git-svc writes each event to its outbox table in the same database
 //     transaction as the change it describes, so an event exists if and
-//     only if the change was committed.
+//     only if the change was committed. RepositoryPushed is the exception:
+//     see its comment.
 //   - Events are delivered at least once. A consumer can see the same event
 //     more than once and must handle it idempotently, using the event ID
 //     carried next to the payload.
@@ -181,20 +182,32 @@ func (x *RepositoryDeleted) GetOccurredAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// RepositoryPushed is published after a push changes at least one ref.
+// RepositoryPushed is published after a push over HTTPS changes at least
+// one ref.
 //
-// NOT EMITTED YET. git-svc will publish it once push over HTTPS exists
-// (W2-W3). It is defined now so that ci-svc can code against it.
+// One push can update several refs; they are all in one event. Refs the
+// server rejected are not included, and a push that changes no ref
+// produces no event.
 //
-// One push can update several refs; they are all in one event. A push that
-// changes no ref produces no event.
+// Git updates the refs on disk before git-svc writes the event, so the two
+// cannot share a transaction. If git-svc stops or its database fails in
+// between, the push has happened without an event; git-svc logs every
+// such loss. A push to a repository that is deleted at the same moment
+// may also produce no event. An event is never written for a push that
+// did not happen.
+//
+// The events of one repository have no guaranteed order: a push that
+// finished first can be recorded after a later one, and delivery retries can
+// reorder events too. old_sha and new_sha show how the updates of a ref
+// follow each other, so a consumer that needs the sequence uses them.
 type RepositoryPushed struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ID of the repository that was pushed to.
 	RepositoryId string `protobuf:"bytes,1,opt,name=repository_id,json=repositoryId,proto3" json:"repository_id,omitempty"`
-	// ID of the user who pushed, as issued by auth-svc.
+	// ID of the user who pushed, as issued by auth-svc. The gateway passes it
+	// to git-svc in the X-Git2-User-Id header.
 	PusherId string `protobuf:"bytes,2,opt,name=pusher_id,json=pusherId,proto3" json:"pusher_id,omitempty"`
-	// When git-svc accepted the push.
+	// When git-svc recorded the push, just after git updated the refs.
 	OccurredAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
 	// The refs the push changed, in the order Git reported them.
 	RefUpdates    []*RefUpdate `protobuf:"bytes,4,rep,name=ref_updates,json=refUpdates,proto3" json:"ref_updates,omitempty"`
@@ -275,10 +288,13 @@ type RefUpdate struct {
 	OldSha string `protobuf:"bytes,2,opt,name=old_sha,json=oldSha,proto3" json:"old_sha,omitempty"`
 	// Object ID the ref points to after the push.
 	NewSha string `protobuf:"bytes,3,opt,name=new_sha,json=newSha,proto3" json:"new_sha,omitempty"`
-	// True if the update was not a fast-forward: old_sha is not an ancestor
-	// of new_sha, so commits were removed from the ref's history. Always
-	// false when the ref was created or deleted.
-	Forced        bool `protobuf:"varint,4,opt,name=forced,proto3" json:"forced,omitempty"`
+	// Whether the update rewrote the ref's history:
+	//   - true: not a fast-forward. old_sha is not an ancestor of new_sha, so
+	//     commits were removed from the ref's history.
+	//   - false: a fast-forward, or the ref was created or deleted.
+	//   - not set: git-svc could not tell, because the objects are not commits
+	//     or the check ran out of time on a push that updated very many refs.
+	Forced        *bool `protobuf:"varint,4,opt,name=forced,proto3,oneof" json:"forced,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -335,8 +351,8 @@ func (x *RefUpdate) GetNewSha() string {
 }
 
 func (x *RefUpdate) GetForced() bool {
-	if x != nil {
-		return x.Forced
+	if x != nil && x.Forced != nil {
+		return *x.Forced
 	}
 	return false
 }
@@ -364,12 +380,13 @@ const file_git_v1_events_proto_rawDesc = "" +
 	"\voccurred_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"occurredAt\x122\n" +
 	"\vref_updates\x18\x04 \x03(\v2\x11.git.v1.RefUpdateR\n" +
-	"refUpdates\"g\n" +
+	"refUpdates\"w\n" +
 	"\tRefUpdate\x12\x10\n" +
 	"\x03ref\x18\x01 \x01(\tR\x03ref\x12\x17\n" +
 	"\aold_sha\x18\x02 \x01(\tR\x06oldSha\x12\x17\n" +
-	"\anew_sha\x18\x03 \x01(\tR\x06newSha\x12\x16\n" +
-	"\x06forced\x18\x04 \x01(\bR\x06forcedB\x8e\x01\n" +
+	"\anew_sha\x18\x03 \x01(\tR\x06newSha\x12\x1b\n" +
+	"\x06forced\x18\x04 \x01(\bH\x00R\x06forced\x88\x01\x01B\t\n" +
+	"\a_forcedB\x8e\x01\n" +
 	"\n" +
 	"com.git.v1B\vEventsProtoP\x01Z:github.com/git2-project/git2-codeplane/gen/go/git/v1;gitv1\xa2\x02\x03GXX\xaa\x02\x06Git.V1\xca\x02\x06Git\\V1\xe2\x02\x12Git\\V1\\GPBMetadata\xea\x02\aGit::V1b\x06proto3"
 
@@ -410,6 +427,7 @@ func file_git_v1_events_proto_init() {
 	if File_git_v1_events_proto != nil {
 		return
 	}
+	file_git_v1_events_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

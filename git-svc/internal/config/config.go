@@ -17,6 +17,7 @@ import (
 // Environment variable names read by Load.
 const (
 	EnvGRPCAddr         = "GIT2_GITSVC_GRPC_ADDR"
+	EnvHTTPAddr         = "GIT2_GITSVC_HTTP_ADDR"
 	EnvPostgresDSN      = "POSTGRES_DSN"
 	EnvPostgresMaxConns = "POSTGRES_MAX_CONNS"
 	EnvStorageRoot      = "GIT2_STORAGE_ROOT"
@@ -27,6 +28,7 @@ const (
 // Defaults used when a variable is unset.
 const (
 	DefaultGRPCAddr         = ":9090"
+	DefaultHTTPAddr         = ":9080"
 	DefaultPostgresMaxConns = 10
 )
 
@@ -34,6 +36,9 @@ const (
 type Config struct {
 	// GRPCAddr is the host:port the gRPC server listens on.
 	GRPCAddr string
+	// HTTPAddr is the host:port of the HTTP server: Git's smart HTTP
+	// protocol (clone, fetch, push) and the health endpoints.
+	HTTPAddr string
 	// PostgresDSN is the PostgreSQL connection string. It may contain a
 	// password, so it must not be logged.
 	PostgresDSN string
@@ -58,6 +63,7 @@ func Load() (Config, error) {
 func parse(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
 		GRPCAddr:         DefaultGRPCAddr,
+		HTTPAddr:         DefaultHTTPAddr,
 		PostgresMaxConns: DefaultPostgresMaxConns,
 		LogLevel:         slog.LevelInfo,
 	}
@@ -68,6 +74,13 @@ func parse(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if _, _, err := net.SplitHostPort(cfg.GRPCAddr); err != nil {
 		errs = append(errs, fmt.Errorf("%s: %w", EnvGRPCAddr, err))
+	}
+
+	if v, ok := lookup(EnvHTTPAddr); ok && v != "" {
+		cfg.HTTPAddr = v
+	}
+	if _, _, err := net.SplitHostPort(cfg.HTTPAddr); err != nil {
+		errs = append(errs, fmt.Errorf("%s: %w", EnvHTTPAddr, err))
 	}
 
 	if v, ok := lookup(EnvPostgresDSN); ok && v != "" {

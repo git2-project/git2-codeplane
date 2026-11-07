@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 )
 
@@ -33,6 +34,9 @@ func TestToStatus(t *testing.T) {
 		{"validation wrapped", fmt.Errorf("create: %w", repo.ValidateName("x.git")), codes.InvalidArgument, `name: must not end with ".git"`, ""},
 		{"not found wrapped", fmt.Errorf("get repository: %w", repo.ErrNotFound), codes.NotFound, "repository not found", ""},
 		{"already exists wrapped", fmt.Errorf("%w: %q", repo.ErrAlreadyExists, "payments"), codes.AlreadyExists, "the owner already has a repository with this name", ""},
+		{"ref not found", browse.ErrRefNotFound, codes.NotFound, "ref not found", ""},
+		{"path not found", browse.ErrPathNotFound, codes.NotFound, "path not found", ""},
+		{"commit not found", fmt.Errorf("get commit: %w", browse.ErrCommitNotFound), codes.NotFound, "commit not found", ""},
 		{"canceled", fmt.Errorf("query: %w", context.Canceled), codes.Canceled, "request canceled", ""},
 		{"deadline", fmt.Errorf("git: %w", context.DeadlineExceeded), codes.DeadlineExceeded, "deadline exceeded", ""},
 		{"internal with path", diskErr, codes.Internal, "internal error", "exit status 128"},

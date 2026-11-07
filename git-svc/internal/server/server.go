@@ -13,12 +13,18 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 )
 
 // healthServices are the names health reports on: "" for the whole server,
 // plus each gRPC service git-svc implements.
-var healthServices = []string{"", gitv1.RepositoryService_ServiceDesc.ServiceName}
+var healthServices = []string{
+	"",
+	gitv1.RepositoryService_ServiceDesc.ServiceName,
+	gitv1.RefService_ServiceDesc.ServiceName,
+	gitv1.CommitService_ServiceDesc.ServiceName,
+}
 
 // Options configure New.
 type Options struct {
@@ -33,15 +39,17 @@ type Server struct {
 }
 
 // New builds the gRPC server with its interceptors, RepositoryService
-// backed by repos, and the health service. Health reports NOT_SERVING until
-// Serve is called.
-func New(log *slog.Logger, repos *repo.Service, opts Options) *Server {
+// backed by repos, RefService and CommitService backed by reader, and the
+// health service. Health reports NOT_SERVING until Serve is called.
+func New(log *slog.Logger, repos *repo.Service, reader *browse.Service, opts Options) *Server {
 	gs := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(logUnary(log), recoverUnary(log)),
 		grpc.ChainStreamInterceptor(recoverStream(log)),
 	)
 
 	gitv1.RegisterRepositoryServiceServer(gs, &repositoryServer{repos: repos, log: log})
+	gitv1.RegisterRefServiceServer(gs, &refServer{reader: reader, log: log})
+	gitv1.RegisterCommitServiceServer(gs, &commitServer{reader: reader, log: log})
 
 	hs := health.NewServer()
 	for _, name := range healthServices {

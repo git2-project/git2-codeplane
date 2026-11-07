@@ -55,7 +55,7 @@ func TestServeUntilDoneStopsOnCancel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- serveUntilDone(ctx, log,
-			listener{name: "gRPC", srv: server.New(log, nil, server.Options{}), lis: grpcLis},
+			listener{name: "gRPC", srv: server.New(log, nil, nil, server.Options{}), lis: grpcLis},
 			listener{name: "HTTP", srv: newHTTPServer(t, log), lis: httpLis})
 	}()
 
@@ -88,7 +88,7 @@ func TestServeUntilDoneStopsWhenAServerFails(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- serveUntilDone(t.Context(), log,
-			listener{name: "gRPC", srv: server.New(log, nil, server.Options{}), lis: listen(t)},
+			listener{name: "gRPC", srv: server.New(log, nil, nil, server.Options{}), lis: listen(t)},
 			listener{name: "HTTP", srv: newHTTPServer(t, log), lis: broken})
 	}()
 

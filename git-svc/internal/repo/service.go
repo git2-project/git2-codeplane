@@ -232,7 +232,7 @@ func (s *Service) List(ctx context.Context, p ListParams) (Page, error) {
 		page.Repositories = repos[:size]
 		last := page.Repositories[size-1]
 		// Names are ASCII, so strings.ToLower matches PostgreSQL's lower().
-		page.NextPageToken = encodePageToken(cursor{OwnerID: p.OwnerID, NameKey: strings.ToLower(last.Name), ID: last.ID})
+		page.NextPageToken = EncodePageToken(cursor{OwnerID: p.OwnerID, NameKey: strings.ToLower(last.Name), ID: last.ID})
 	}
 	return page, nil
 }

@@ -55,6 +55,10 @@ const (
 // through gitcmd.Run have gitcmd's own timeout.
 const streamTimeout = 10 * time.Minute
 
+// defaultLastCommitTimeout bounds finding the last commit of a directory,
+// which GetTree leaves out when it takes longer.
+const defaultLastCommitTimeout = 10 * time.Second
+
 // Repositories finds live repositories.
 type Repositories interface {
 	// Get returns repo.ErrNotFound for an unknown or deleted repository.
@@ -63,15 +67,16 @@ type Repositories interface {
 
 // Service reads repositories.
 type Service struct {
-	repos  Repositories
-	layout *storage.Layout
-	git    *gitcmd.Runner
+	repos             Repositories
+	layout            *storage.Layout
+	git               *gitcmd.Runner
+	lastCommitTimeout time.Duration
 }
 
 // NewService returns a Service that looks repositories up in repos and
 // reads them from layout with git.
 func NewService(repos Repositories, layout *storage.Layout, git *gitcmd.Runner) *Service {
-	return &Service{repos: repos, layout: layout, git: git}
+	return &Service{repos: repos, layout: layout, git: git, lastCommitTimeout: defaultLastCommitTimeout}
 }
 
 // repository is a live repository opened for reading.

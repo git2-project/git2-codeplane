@@ -2,9 +2,11 @@ package browse
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 )
@@ -45,6 +47,46 @@ func TestGetTreeRoot(t *testing.T) {
 	}
 	if d := byName["docs"]; d.Type != EntryDirectory || d.Size != -1 {
 		t.Errorf("docs = %+v, want a directory without size", d)
+	}
+}
+
+func TestGetTreeWithoutLastCommitWhenOutOfTime(t *testing.T) {
+	e := newEnv(t)
+	s := newSample(t, e)
+	e.svc.lastCommitTimeout = -time.Second // already over when git would start
+
+	tree, err := e.svc.GetTree(t.Context(), s.id, "main", "docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree.LastCommit != nil {
+		t.Errorf("last commit = %+v, want none", tree.LastCommit)
+	}
+	if tree.CommitSHA != s.c3 || len(tree.Entries) != 1 || tree.Entries[0].Path != "docs/manual.md" {
+		t.Errorf("GetTree() = %+v, want the listing of docs at %s", tree, s.c3)
+	}
+}
+
+func TestLastCommitFailures(t *testing.T) {
+	e := newEnv(t)
+	s := newSample(t, e)
+	dir := e.layout.RepoPath(s.id)
+
+	// The caller's own deadline and cancellation are errors: the caller is
+	// not waiting for a listing any more.
+	expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	_, err := e.svc.lastCommit(expired, dir, s.c3, "docs")
+	wantErr(t, "lastCommit(expired context)", err, context.DeadlineExceeded)
+
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = e.svc.lastCommit(canceled, dir, s.c3, "docs")
+	wantErr(t, "lastCommit(canceled context)", err, context.Canceled)
+
+	// Only running out of time is forgiven, not a failure of git.
+	if c, err := e.svc.lastCommit(t.Context(), dir, strings.Repeat("a", 40), "docs"); err == nil {
+		t.Errorf("lastCommit(unknown commit) = %+v, want an error", c)
 	}
 }
 

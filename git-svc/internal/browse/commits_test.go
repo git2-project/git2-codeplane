@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 )
 
 func TestListCommits(t *testing.T) {
@@ -52,10 +54,10 @@ func TestListCommits(t *testing.T) {
 	// commit of the repository.
 	_, err = e.svc.ListCommits(t.Context(), s.id, "", "docs", 1, first.NextPageToken)
 	assertInvalid(t, "ListCommits(token of another path)", err)
-	forged := encodeToken(commitCursor{Repo: s.id, Commit: strings.Repeat("a", 40), Skip: 1})
+	forged := repo.EncodePageToken(commitCursor{Repo: s.id, Commit: strings.Repeat("a", 40), Skip: 1})
 	_, err = e.svc.ListCommits(t.Context(), s.id, "", "", 1, forged)
 	assertInvalid(t, "ListCommits(forged token)", err)
-	forged = encodeToken(commitCursor{Repo: s.id, Commit: "--output=x", Skip: 1})
+	forged = repo.EncodePageToken(commitCursor{Repo: s.id, Commit: "--output=x", Skip: 1})
 	_, err = e.svc.ListCommits(t.Context(), s.id, "", "", 1, forged)
 	assertInvalid(t, "ListCommits(token with an option)", err)
 	_, err = e.svc.ListCommits(t.Context(), s.id, "nope", "", 0, "")
@@ -171,6 +173,102 @@ func TestGetCommitMergeAndTypeChange(t *testing.T) {
 	if kind.NewPath != "kind" || kind.Status != FileModified ||
 		!strings.Contains(string(kind.Patch), "-a file\n") || !strings.Contains(string(kind.Patch), "+a.txt") {
 		t.Errorf("kind = %+v, patch %q; want both halves of the type change", kind, kind.Patch)
+	}
+}
+
+// Git quotes each path of a "diff --git" line on its own, so the header that
+// GetCommit expects has to follow git's rules exactly.
+func TestGetCommitPathsThatGitQuotes(t *testing.T) {
+	e := newEnv(t)
+	id := e.newRepo(t)
+	w := e.newWork(t, id)
+
+	// Lines that no other file has, so that a rename pairs the right files.
+	lines := func(file int) string {
+		var b strings.Builder
+		for n := range 20 {
+			fmt.Fprintf(&b, "file %d, line %d\n", file, n)
+		}
+		return b.String()
+	}
+	const added = "one more\n"
+
+	renames := []struct{ from, to string }{
+		{"plain-1", `new"quote`},     // only the new path is quoted
+		{`old"quote`, "plain-2"},     // only the old path
+		{`old\back`, `new\back`},     // both
+		{"old\ttab", "new\nline"},    // C escapes
+		{"old\x01ctl", "new\x7fdel"}, // octal escapes
+		{"plain 3", "new space"},     // a space is not quoted
+		{"café-old", "café-new"},     // core.quotePath=false: not quoted
+		{"old\xff", "new\xfe"},       // not UTF-8: not quoted
+	}
+	before, after := map[string]string{}, map[string]string{}
+	for i, r := range renames {
+		before[r.from] = lines(i)
+		after[r.to] = lines(i) + added
+	}
+	// The same quoting without a rename.
+	const modified, deleted, created = `modified"`, "deleted\t", `created\`
+	before[modified], after[modified] = lines(100), lines(100)+added
+	before[deleted] = lines(101)
+	after[created] = lines(102)
+
+	first := w.git(t, 1000, "", "commit-tree", "-m", "before", w.mktree(t, before))
+	second := w.git(t, 2000, "", "commit-tree", "-m", "after", "-p", first, w.mktree(t, after))
+	w.push(t, second+":refs/heads/main")
+
+	d, err := e.svc.GetCommit(t.Context(), id, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]FileDiff{}
+	for _, f := range d.Files {
+		files[f.OldPath+">"+f.NewPath] = f
+	}
+	if len(files) != len(renames)+3 {
+		t.Errorf("%d files, want %d: %+v", len(files), len(renames)+3, d.Files)
+	}
+	// A patch must carry the file's own lines: the check of the header is what
+	// keeps a patch from landing on another file.
+	check := func(key string, status FileStatus, file int, patchHas string) {
+		t.Helper()
+		f, ok := files[key]
+		if !ok {
+			t.Errorf("no file %q", key)
+			return
+		}
+		patch := string(f.Patch)
+		if f.Status != status || !strings.Contains(patch, fmt.Sprintf("file %d, ", file)) || !strings.Contains(patch, patchHas) {
+			t.Errorf("%q = status %d, patch %q; want status %d, the lines of file %d and %q", key, f.Status, patch, status, file, patchHas)
+		}
+	}
+	for i, r := range renames {
+		check(clean(r.from)+">"+clean(r.to), FileRenamed, i, "+"+added)
+	}
+	check(modified+">"+modified, FileModified, 100, "+"+added)
+	check(deleted+">", FileDeleted, 101, "-file 101")
+	check(">"+created, FileAdded, 102, "+file 102")
+}
+
+// A patch whose header names another file fails the request, instead of
+// landing on the wrong file.
+func TestDiffPatchesRefusesThePatchOfAnotherFile(t *testing.T) {
+	e := newEnv(t)
+	s := newSample(t, e)
+	dir := e.layout.RepoPath(s.id)
+	trees := []string{s.c1, s.c2}
+
+	changes, _, err := e.svc.diffFiles(t.Context(), dir, trees)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.diffPatches(t.Context(), dir, trees, changes); err != nil {
+		t.Fatalf("diffPatches() with the right headers: %v", err)
+	}
+	changes[0].header = "diff --git a/another b/another"
+	if files, err := e.svc.diffPatches(t.Context(), dir, trees, changes); err == nil {
+		t.Errorf("diffPatches() = %+v, want an error", files)
 	}
 }
 

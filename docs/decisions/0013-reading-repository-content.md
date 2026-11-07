@@ -34,16 +34,17 @@ A short SHA works only in `GetCommit`, not as a `ref`: links are built from the 
 **Paths** are relative, without empty, `.` or `..` parts, at most 4096 bytes. They reach git only after `--` and with `--literal-pathspecs`, so `*` or `[1]` are file names, not patterns.
 
 **Answers built for the UI:**
-- `GetTree`: one directory, directories first, at most 10 000 entries (`truncated`), with the last commit that changed the directory. A repository without commits answers `empty = true` instead of an error.
+- `GetTree`: one directory, directories first, at most 10 000 entries (`truncated`), with the last commit that changed the directory. For a directory untouched for long, git walks most of the history to find that commit, so it gets 10 seconds; after that the answer has the listing without `last_commit`. A failure of git is still an error. A repository without commits answers `empty = true` instead of an error.
+- `ListTags`: `message` leaves out the signature of a signed tag. It is `%(contents)` without its `%(contents:signature)` suffix, because `%(contents:subject)` would join the lines of a first paragraph.
 - `GetBlob`: up to 1 MiB of content, `truncated` beyond. `binary` is git's own test (a NUL in the first 8000 bytes); binary files come without content. `lfs` marks a Git LFS pointer.
 - `GetRawBlob` streams any file in messages of at most 64 KiB; the first message carries size and name.
 - Contents and patches are `bytes`: files are not always UTF-8. Names and messages are strings; bytes that are not UTF-8 become U+FFFD.
 
-**Paging.** `page_size` and tokens follow ADR 0008. Ref tokens hold the last ref's sort key, so pages stay correct when refs change. Commit tokens hold the first page's commit and an offset into its history, which never changes, so later pages ignore new pushes.
+**Paging.** `page_size` and tokens follow ADR 0008. Ref tokens hold the last ref's sort key, so pages stay correct when refs change. The key's name is stored as bytes: a ref name need not be UTF-8, and JSON would change a string that is not. Commit tokens hold the first page's commit and an offset into its history, which never changes, so later pages ignore new pushes.
 
-**Git, not go-git.** Every read runs git plumbing through `gitcmd` (`for-each-ref`, `rev-parse`, `ls-tree`, `cat-file`, `log`, `diff-tree`), like the rest of git-svc. Large reads stream: `GetBlob` stops git after 1 MiB, and `GetCommit` stops git once its patches are full, so memory stays bounded whatever the file or commit size. One git process per step is fast enough for a code browser; a long-running `git cat-file --batch` can come later if profiling asks for it.
+**Git, not go-git.** Every read runs git plumbing through `gitcmd` (`for-each-ref`, `rev-parse`, `ls-tree`, `cat-file`, `log`, `diff-tree`), like the rest of git-svc. File contents and patches stream: `GetBlob` stops git after 1 MiB, and `GetCommit` stops git once its patches are full, so these stay bounded in memory whatever the file size. Listings do not stream yet: `ListBranches`, `ListTags`, `GetTree` and `GetCommit`'s list of files read git's whole output and only then apply their limits, so a repository with very many refs, a huge directory or a commit that touches very many files costs memory and time for each request. One git process per step is fast enough for a code browser; a long-running `git cat-file --batch` can come later if profiling asks for it.
 
-**Splitting patches.** `GetCommit` lists the changed files with `diff-tree --raw --numstat`, then reads `diff-tree -p` once and splits it at its `diff --git` lines, in the same order. A type change (file to symlink) prints two sections, which both go to one file. Each section's header is checked against the expected paths, so a mismatch fails the request instead of attaching a patch to the wrong file.
+**Splitting patches.** `GetCommit` lists the changed files with `diff-tree --raw --numstat`, then reads `diff-tree -p` once and splits it at its `diff --git` lines, in the same order. A type change (file to symlink) prints two sections, which both go to one file. Each section's header is checked against the expected paths, quoted the way git quotes them, so a mismatch fails the request instead of attaching a patch to the wrong file.
 
 ## Consequences
 

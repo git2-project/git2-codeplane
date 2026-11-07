@@ -131,18 +131,33 @@ func (s *Service) GetTree(ctx context.Context, id uuid.UUID, ref, dirPath string
 		tree.Entries, tree.Truncated = entries[:maxTreeEntries], true
 	}
 
-	args := []string{"-1", res.commit}
+	if tree.LastCommit, err = s.lastCommit(ctx, r.dir, res.commit, dirPath); err != nil {
+		return Tree{}, err
+	}
+	return tree, nil
+}
+
+// lastCommit returns the last commit at or before commit that changed the
+// directory. It returns nil if git does not find it within lastCommitTimeout:
+// for a directory untouched for long, git walks most of the history, and that
+// must not cost the listing, which is already there.
+func (s *Service) lastCommit(ctx context.Context, dir, commit, dirPath string) (*Commit, error) {
+	args := []string{"-1", commit}
 	if dirPath != "" {
 		args = append(args, "--", dirPath)
 	}
-	last, err := s.logCommits(ctx, r.dir, args...)
-	if err != nil {
-		return Tree{}, err
+	bounded, cancel := context.WithTimeout(ctx, s.lastCommitTimeout)
+	defer cancel()
+	last, err := s.logCommits(bounded, dir, args...)
+	switch {
+	case ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case len(last) == 0:
+		return nil, nil
 	}
-	if len(last) == 1 {
-		tree.LastCommit = &last[0]
-	}
-	return tree, nil
+	return &last[0], nil
 }
 
 // GetBlob returns the file at path at ref, cut at maxBlobBytes.

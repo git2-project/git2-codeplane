@@ -125,15 +125,48 @@ func (w *work) addSpecial(t *testing.T, mode, p, target string) {
 	t.Helper()
 	sha := target
 	if mode == "120000" {
-		var out bytes.Buffer
-		err := w.e.client.Stream(t.Context(), gitcmd.StreamOptions{Dir: w.dir, Stdin: strings.NewReader(target), Stdout: &out},
-			"hash-object", "-w", "--stdin")
-		if err != nil {
-			t.Fatal(err)
-		}
-		sha = strings.TrimSpace(out.String())
+		sha = w.stdin(t, target, "hash-object", "-w", "--stdin")
 	}
 	w.git(t, 0, "", "update-index", "--add", "--cacheinfo", mode+","+sha+","+p)
+}
+
+// stdin runs the client's git in the working copy with input on its standard
+// input, and returns its trimmed output.
+func (w *work) stdin(t *testing.T, input string, args ...string) string {
+	t.Helper()
+	var out bytes.Buffer
+	opts := gitcmd.StreamOptions{Dir: w.dir, Stdin: strings.NewReader(input), Stdout: &out}
+	if err := w.e.client.Stream(t.Context(), opts, args...); err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(out.String())
+}
+
+// mktree writes a tree of files (name to content) and returns its ID. It uses
+// plumbing, so names work that a file system or the index would refuse.
+func (w *work) mktree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	var entries strings.Builder
+	for name, content := range files {
+		blob := w.stdin(t, content, "hash-object", "-w", "--stdin")
+		fmt.Fprintf(&entries, "100644 blob %s\t%s\x00", blob, name)
+	}
+	return w.stdin(t, entries.String(), "mktree", "-z")
+}
+
+// addPackedRefs adds refs that point to sha to a repository without packed
+// refs, by writing the file: a name that is not UTF-8 cannot be a loose ref on
+// every system.
+func (e *env) addPackedRefs(t *testing.T, id uuid.UUID, sha string, refs ...string) {
+	t.Helper()
+	content := "# pack-refs with: peeled fully-peeled \n"
+	for _, ref := range refs {
+		content += sha + " " + ref + "\n"
+	}
+	path := filepath.Join(e.layout.RepoPath(id), "packed-refs")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (w *work) push(t *testing.T, refspecs ...string) {

@@ -503,7 +503,9 @@ type GetTreeResponse struct {
 	// 10000 are listed.
 	Truncated bool `protobuf:"varint,6,opt,name=truncated,proto3" json:"truncated,omitempty"`
 	// The last commit at or before commit_sha that changed this directory.
-	// For the root, the commit itself. Unset when empty is true.
+	// For the root, the commit itself. Unset when empty is true, and when
+	// finding it took too long: for a directory untouched for long, git walks
+	// most of the history.
 	LastCommit    *Commit `protobuf:"bytes,7,opt,name=last_commit,json=lastCommit,proto3" json:"last_commit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

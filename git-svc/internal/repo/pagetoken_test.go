@@ -32,7 +32,7 @@ func TestPageTokenRoundTrip(t *testing.T) {
 	owner := uuid.New()
 	want := cursor{OwnerID: owner, NameKey: "payments", ID: uuid.New()}
 
-	got, err := decodePageToken(encodePageToken(want), owner)
+	got, err := decodePageToken(EncodePageToken(want), owner)
 	if err != nil {
 		t.Fatalf("decodePageToken() error = %v", err)
 	}
@@ -51,7 +51,7 @@ func TestPageTokenRejected(t *testing.T) {
 		{"not base64", "%%%", "is invalid"},
 		{"not JSON", base64.RawURLEncoding.EncodeToString([]byte("payments")), "is invalid"},
 		{"bad UUID", base64.RawURLEncoding.EncodeToString([]byte(`{"o":"x","n":"a","i":"y"}`)), "is invalid"},
-		{"other owner", encodePageToken(cursor{OwnerID: uuid.New(), NameKey: "a", ID: uuid.New()}), "different owner_id"},
+		{"other owner", EncodePageToken(cursor{OwnerID: uuid.New(), NameKey: "a", ID: uuid.New()}), "different owner_id"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

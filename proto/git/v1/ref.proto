@@ -53,7 +53,8 @@ message Tag {
   // rare tag that leads to a tree or a file.
   Commit commit = 2;
 
-  // Message of an annotated tag. Unset for a lightweight tag.
+  // Message of an annotated tag, without the signature of a signed tag. Unset
+  // for a lightweight tag.
   optional string message = 3;
 }
 

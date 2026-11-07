@@ -37,22 +37,32 @@ type cursor struct {
 	ID      uuid.UUID `json:"i"` // tie-breaker
 }
 
-// encodePageToken turns c into an opaque token. Clients must not parse
-// it; the format can change at any time.
-func encodePageToken(c cursor) string {
-	b, _ := json.Marshal(c) // cannot fail: plain strings and UUIDs
+// EncodePageToken turns a cursor into an opaque page token. Every list RPC of
+// git-svc uses this format. Clients must not parse a token; the format can
+// change at any time.
+//
+// A value of the cursor that may not be UTF-8 must be a []byte: JSON would
+// replace the invalid bytes of a string, and it would not come back the same.
+func EncodePageToken(c any) string {
+	b, _ := json.Marshal(c) // cannot fail: plain strings, bytes, numbers and UUIDs
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// decodePageToken reverses encodePageToken and checks that the token was
-// issued for ownerID.
-func decodePageToken(token string, ownerID uuid.UUID) (cursor, error) {
+// DecodePageToken reverses EncodePageToken. Tokens come from clients, so the
+// caller must check every value it uses.
+func DecodePageToken(token string, c any) error {
 	b, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
-		return cursor{}, invalid("page_token", "is invalid")
+		return err
 	}
+	return json.Unmarshal(b, c)
+}
+
+// decodePageToken decodes a token of List and checks that it was issued for
+// ownerID.
+func decodePageToken(token string, ownerID uuid.UUID) (cursor, error) {
 	var c cursor
-	if err := json.Unmarshal(b, &c); err != nil {
+	if err := DecodePageToken(token, &c); err != nil {
 		return cursor{}, invalid("page_token", "is invalid")
 	}
 	if c.OwnerID != ownerID {

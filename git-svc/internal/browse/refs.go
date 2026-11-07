@@ -1,6 +1,7 @@
 package browse
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
@@ -73,7 +74,7 @@ func (s *Service) ListBranches(ctx context.Context, id uuid.UUID, query string, 
 			return BranchPage{}, err
 		}
 		b := Branch{Name: name, Commit: c, Default: rec[0] == r.defaultBranch}
-		key := refKey{Rank: 1, Name: rec[0]}
+		key := refKey{Rank: 1, Name: []byte(rec[0])}
 		if b.Default {
 			key.Rank = 0
 		}
@@ -83,11 +84,11 @@ func (s *Service) ListBranches(ctx context.Context, id uuid.UUID, query string, 
 	return BranchPage{Branches: page, NextPageToken: next}, nil
 }
 
-// tagAtoms describe a tag: its name and type, its date and message, then
-// the commit it points to through an annotated tag (the "*" atoms), then
-// the commit a lightweight tag points to directly.
+// tagAtoms describe a tag: its name and type, its date, its message and
+// signature, then the commit it points to through an annotated tag (the "*"
+// atoms), then the commit a lightweight tag points to directly.
 var tagAtoms = func() []string {
-	atoms := []string{"refname:strip=2", "objecttype", "creatordate:unix", "contents", "*objecttype"}
+	atoms := []string{"refname:strip=2", "objecttype", "creatordate:unix", "contents", "contents:signature", "*objecttype"}
 	for _, a := range commitAtoms {
 		atoms = append(atoms, "*"+a)
 	}
@@ -112,12 +113,12 @@ func (s *Service) ListTags(ctx context.Context, id uuid.UUID, pageSize int32, pa
 	items := make([]sorted[Tag], 0, len(records))
 	for _, rec := range records {
 		t := Tag{Name: clean(rec[0])}
-		const peeled, direct = 5, 5 + commitFields
+		const peeled, direct = 6, 6 + commitFields
 		switch rec[1] {
 		case "tag":
 			t.Annotated = true
-			t.Message = clean(strings.TrimRight(rec[3], "\n"))
-			switch rec[4] {
+			t.Message = tagMessage(rec[3], rec[4])
+			switch rec[5] {
 			case "commit":
 				c, err := parseCommit(rec[peeled : peeled+commitFields])
 				if err != nil {
@@ -136,7 +137,7 @@ func (s *Service) ListTags(ctx context.Context, id uuid.UUID, pageSize int32, pa
 		}
 		// A missing date (a tag object without a tagger) sorts as oldest.
 		date, _ := strconv.ParseInt(rec[2], 10, 64)
-		items = append(items, sorted[Tag]{key: refKey{Time: date, Name: rec[0]}, item: t})
+		items = append(items, sorted[Tag]{key: refKey{Time: date, Name: []byte(rec[0])}, item: t})
 	}
 	page, next := paginate(items, after, size, id)
 	// Only this page's nested tags cost git calls, so pushing many of them
@@ -150,6 +151,14 @@ func (s *Service) ListTags(ctx context.Context, id uuid.UUID, pageSize int32, pa
 		}
 	}
 	return TagPage{Tags: page, NextPageToken: next}, nil
+}
+
+// tagMessage returns the message of an annotated tag from its %(contents),
+// which ends with the signature of a signed tag, and %(contents:signature).
+// The atoms %(contents:subject) and %(contents:body) leave the signature out
+// too, but the subject joins the lines of a first paragraph.
+func tagMessage(contents, signature string) string {
+	return clean(strings.TrimRight(strings.TrimSuffix(contents, signature), "\n"))
 }
 
 // peelTag returns the commit a tag leads to through other tags, or nil if
@@ -168,15 +177,18 @@ func (s *Service) peelTag(ctx context.Context, dir, name string) (*Commit, error
 }
 
 // refKey orders refs: by Rank, then newest Time first, then by Name in
-// byte order. Name is the ref's raw name, as git printed it.
+// byte order. Name is the ref's raw name, as git printed it. It is not a
+// string because a ref name need not be UTF-8: in a page token, JSON would
+// replace the invalid bytes of a string, and the key would not come back the
+// same.
 type refKey struct {
 	Rank int    `json:"k,omitempty"`
 	Time int64  `json:"t,omitempty"`
-	Name string `json:"n"`
+	Name []byte `json:"n"`
 }
 
 func compareKeys(a, b refKey) int {
-	return cmp.Or(cmp.Compare(a.Rank, b.Rank), cmp.Compare(b.Time, a.Time), strings.Compare(a.Name, b.Name))
+	return cmp.Or(cmp.Compare(a.Rank, b.Rank), cmp.Compare(b.Time, a.Time), bytes.Compare(a.Name, b.Name))
 }
 
 // sorted is an item with its sort key.
@@ -202,7 +214,7 @@ func pageArgs(id uuid.UUID, pageSize int32, token string) (int, *refKey, error) 
 		return size, nil, nil
 	}
 	var c refCursor
-	if err := decodeToken(token, &c); err != nil || c.Repo != id {
+	if err := repo.DecodePageToken(token, &c); err != nil || c.Repo != id {
 		return 0, nil, invalid("page_token", "is invalid or was issued for another repository")
 	}
 	return size, &c.Key, nil
@@ -224,7 +236,7 @@ func paginate[T any](items []sorted[T], after *refKey, size int, id uuid.UUID) (
 	next := ""
 	if len(items) > size {
 		items = items[:size]
-		next = encodeToken(refCursor{Repo: id, Key: items[size-1].key})
+		next = repo.EncodePageToken(refCursor{Repo: id, Key: items[size-1].key})
 	}
 	page := make([]T, len(items))
 	for i, it := range items {

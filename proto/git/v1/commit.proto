@@ -198,7 +198,9 @@ message GetTreeResponse {
   bool truncated = 6;
 
   // The last commit at or before commit_sha that changed this directory.
-  // For the root, the commit itself. Unset when empty is true.
+  // For the root, the commit itself. Unset when empty is true, and when
+  // finding it took too long: for a directory untouched for long, git walks
+  // most of the history.
   Commit last_commit = 7;
 }
 

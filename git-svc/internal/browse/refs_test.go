@@ -1,10 +1,13 @@
 package browse
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 )
 
 func TestListBranches(t *testing.T) {
@@ -59,7 +62,7 @@ func TestListBranches(t *testing.T) {
 	if err == nil {
 		t.Error("a token of another repository was accepted")
 	}
-	for _, bad := range []string{"garbage", encodeToken(refCursor{Repo: e.newRepo(t)})} {
+	for _, bad := range []string{"garbage", repo.EncodePageToken(refCursor{Repo: e.newRepo(t)})} {
 		_, err := e.svc.ListBranches(t.Context(), s.id, "", 1, bad)
 		assertInvalid(t, "ListBranches(token "+bad+")", err)
 	}
@@ -140,6 +143,92 @@ func TestListTagsThroughOtherTags(t *testing.T) {
 				t.Errorf("%s has commit %s, want none: it leads to a file", tag.Name, tag.Commit.SHA)
 			}
 		}
+	}
+}
+
+func TestListTagsLeavesOutSignatures(t *testing.T) {
+	const (
+		pgp = "-----BEGIN PGP SIGNATURE-----\n\nabc\n-----END PGP SIGNATURE-----\n"
+		ssh = "-----BEGIN SSH SIGNATURE-----\nabc\n-----END SSH SIGNATURE-----\n"
+	)
+	e := newEnv(t)
+	s := newSample(t, e)
+
+	want := map[string]string{}
+	for _, tt := range []struct{ name, message, signature, want string }{
+		// The lines of the first paragraph must stay lines.
+		{"pgp", "Release notes\nsecond line\n\nMore notes\n", pgp, "Release notes\nsecond line\n\nMore notes"},
+		{"ssh", "Release notes\n", ssh, "Release notes"},
+		{"only-signature", "", pgp, ""},
+		{"unsigned", "Release notes\n", "", "Release notes"},
+	} {
+		object := fmt.Sprintf("object %s\ntype commit\ntag %s\ntagger Ada <ada@example.com> 1000 +0000\n\n%s%s",
+			s.c1, tt.name, tt.message, tt.signature)
+		s.w.git(t, 0, "", "update-ref", "refs/tags/"+tt.name, s.w.stdin(t, object, "mktag"))
+		want[tt.name] = tt.want
+	}
+	s.w.push(t, "--tags")
+
+	page, err := e.svc.ListTags(t.Context(), s.id, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tags) != len(want) {
+		t.Fatalf("tags = %q, want %d", tagNames(page.Tags), len(want))
+	}
+	for _, tag := range page.Tags {
+		if !tag.Annotated || tag.Message != want[tag.Name] {
+			t.Errorf("%s: annotated %v, message %q; want annotated, %q", tag.Name, tag.Annotated, tag.Message, want[tag.Name])
+		}
+	}
+}
+
+// A ref name need not be UTF-8. The page token must bring it back byte for
+// byte: if it came back different, a page could start before the end of the
+// last one, and the same page would repeat forever.
+func TestPagesOfRefsThatAreNotUTF8(t *testing.T) {
+	e := newEnv(t)
+	s := newSample(t, e)
+	names := []string{"y\xc3", "z\xfe", "z\xff"}
+	var refs []string
+	for _, n := range names {
+		refs = append(refs, "refs/heads/"+n, "refs/tags/"+n)
+	}
+	e.addPackedRefs(t, s.id, s.c1, refs...)
+
+	const invalid = "�"
+	allTags := "y" + invalid + " z" + invalid + " z" + invalid
+
+	var got []string
+	token := ""
+	for range 10 {
+		page, err := e.svc.ListBranches(t.Context(), s.id, "", 1, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, branchNames(page.Branches))
+		if token = page.NextPageToken; token == "" {
+			break
+		}
+	}
+	if got := join(got); got != "main "+allTags {
+		t.Errorf("paged branches = %q, want %q", got, "main "+allTags)
+	}
+
+	got = nil
+	token = ""
+	for range 10 {
+		page, err := e.svc.ListTags(t.Context(), s.id, 1, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, tagNames(page.Tags))
+		if token = page.NextPageToken; token == "" {
+			break
+		}
+	}
+	if got := join(got); got != allTags {
+		t.Errorf("paged tags = %q, want %q", got, allTags)
 	}
 }
 

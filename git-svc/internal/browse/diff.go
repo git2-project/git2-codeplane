@@ -154,8 +154,35 @@ func newChange(status byte, paths []string) change {
 	default:
 		c.Status, c.OldPath, c.NewPath = FileModified, clean(from), clean(to)
 	}
-	c.header = "diff --git a/" + from + " b/" + to
+	c.header = "diff --git " + quotePath("a/"+from) + " " + quotePath("b/"+to)
 	return c
+}
+
+// quotePath returns a path the way git prints it in a "diff --git" line with
+// core.quotePath=false: control characters, double quotes and backslashes are
+// escaped as in C, and the whole path then goes in double quotes. Bytes from
+// 0x80 up stay as they are. Git decides this for each path on its own, so one
+// path of a rename can be quoted and the other not.
+func quotePath(p string) string {
+	var b strings.Builder
+	for i := range len(p) {
+		switch c := p[i]; {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c >= '\a' && c <= '\r':
+			b.WriteByte('\\')
+			b.WriteByte("abtnvfr"[c-'\a'])
+		case c < ' ' || c == 0x7f:
+			fmt.Fprintf(&b, `\%03o`, c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	if b.Len() == len(p) {
+		return p // nothing was escaped
+	}
+	return `"` + b.String() + `"`
 }
 
 // diffPatches reads the patches of changes, which are the first files of
@@ -175,7 +202,8 @@ func (s *Service) diffPatches(ctx context.Context, dir string, trees []string, c
 	stop, stopGit := context.WithCancel(ctx)
 	defer stopGit()
 	split := &patchSplitter{want: want, stop: stopGit, atStart: true}
-	// core.quotePath=false keeps non-ASCII paths unquoted in the headers.
+	// core.quotePath=false keeps non-ASCII paths unquoted in the headers; see
+	// quotePath for the rest.
 	args := append(append([]string{"-c", "core.quotePath=false", "diff-tree", "-p", "--no-color"}, diffArgs...), trees...)
 	err := s.git.Stream(stop, gitcmd.StreamOptions{Dir: dir, Stdout: split}, args...)
 	split.flush()
@@ -198,8 +226,7 @@ func (s *Service) diffPatches(ctx context.Context, dir string, trees []string, c
 			}
 			sec := split.sections[next]
 			next++
-			if h := string(bytes.TrimSuffix(sec.header, []byte("\n"))); !strings.HasPrefix(h, `diff --git "`) &&
-				len(sec.header) < maxHeader && h != c.header {
+			if h := string(bytes.TrimSuffix(sec.header, []byte("\n"))); len(sec.header) < maxHeader && h != c.header {
 				return nil, fmt.Errorf("patch %d is for %q, want %q", next-1, h, c.header)
 			}
 			f.Truncated = f.Truncated || sec.truncated

@@ -59,7 +59,7 @@ func (s *Service) ListCommits(ctx context.Context, id uuid.UUID, ref, filePath s
 	cur := commitCursor{Repo: id, Path: filePath}
 	if pageToken != "" {
 		var c commitCursor
-		if err := decodeToken(pageToken, &c); err != nil || c.Repo != id || c.Path != filePath ||
+		if err := repo.DecodePageToken(pageToken, &c); err != nil || c.Repo != id || c.Path != filePath ||
 			!isFullSHA(c.Commit) || c.Skip < 0 || c.Skip > maxSkip {
 			return CommitPage{}, invalid("page_token", "is invalid or was issued for another repository or path")
 		}
@@ -93,7 +93,7 @@ func (s *Service) ListCommits(ctx context.Context, id uuid.UUID, ref, filePath s
 	if len(commits) > size {
 		page.Commits = commits[:size]
 		cur.Skip += size
-		page.NextPageToken = encodeToken(cur)
+		page.NextPageToken = repo.EncodePageToken(cur)
 	}
 	return page, nil
 }

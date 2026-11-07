@@ -130,6 +130,23 @@ func TestParseDiffFiles(t *testing.T) {
 	}
 }
 
+func TestQuotePath(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		{"a/plain name.txt", "a/plain name.txt"},
+		{"a/café", "a/café"},
+		{"a/caf\xff", "a/caf\xff"},
+		{`a/we"ird`, `"a/we\"ird"`},
+		{`a/back\slash`, `"a/back\\slash"`},
+		{"a/\a\b\t\n\v\f\r", `"a/\a\b\t\n\v\f\r"`},
+		{"a/\x01\x06\x0e\x1f\x7f", `"a/\001\006\016\037\177"`},
+		{"a/café\t", "\"a/café\\t\""},
+	} {
+		if got := quotePath(tt.in); got != tt.want {
+			t.Errorf("quotePath(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestCheckPath(t *testing.T) {
 	for _, ok := range []string{"", "a", "a/b.txt", "a b/c", "a[1]/*.go", ".github/workflows", "..x/y.."} {
 		if err := checkPath(ok); err != nil {

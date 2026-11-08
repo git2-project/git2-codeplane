@@ -14,7 +14,7 @@ Read `docs/decisions/` (what is decided and why) before changing anything they c
   - Never edit an applied migration or change the shared DB by hand (ADR 0006).
 - **A doc with every change.** If anyone outside this repo can notice a change (proto, event, config, error, limit, behaviour, schema), the same PR adds a version note and a line in `docs/version_notes/overview.md`. The rules are in `docs/CLAUDE.md`.
 - **Never edit other repositories** (`git2`, `git2-runner`, `git2-deploy`). When something there must change, write it as an action item in the version note.
-- **Contracts.** `proto/git/v1/` is the source of truth for our gRPC API and events. A contract change needs approval from every affected owner.
+- **Contracts.** `proto/git/v1/` is the source of truth for our gRPC API and events, and `proto/events/v1/` for how every git2 service delivers events (`EventSink`). A contract change needs approval from every affected owner.
 - **Every change ships with tests.** `make tests` and `make lint` must pass.
 - **Secrets** are never logged and never committed. `.env` is gitignored; `env.example` is the template.
 
@@ -22,7 +22,7 @@ Read `docs/decisions/` (what is decided and why) before changing anything they c
 
 - Go 1.26, one module at the repo root (`github.com/git2-project/git2-codeplane`).
 - gRPC with protobuf; buf for lint and codegen. Generated Go code in `gen/go/` is committed. REST lives only at git2's gateway.
-- PostgreSQL through pgx/v5, on the team's shared dev DB (`POSTGRES_DSN`), schema `git_svc`. Events go to `git_svc.outbox` in the same transaction as the change.
+- PostgreSQL through pgx/v5, on the team's shared dev DB (`POSTGRES_DSN`), schema `git_svc`. Events go to `git_svc.outbox` in the same transaction as the change; the relay pushes them to subscribers over gRPC (ADR 0014).
 - Git is the source of truth for objects and refs; the database holds metadata only and never stores commits. Anything that writes to a repository or speaks the Git protocol uses the `git` CLI (2.38 or newer) through `internal/gitcmd`. Reads do too (ADR 0013); go-git stays an option if a read path ever needs it.
 - git-svc does not use Redis.
 - `log/slog` JSON logs.
@@ -32,7 +32,7 @@ Read `docs/decisions/` (what is decided and why) before changing anything they c
 
 ```
 .devcontainer/          Go 1.26, git, psql, make + a throwaway PostgreSQL for tests
-git-svc/cmd/git-svc     main: config, startup checks, gRPC and HTTP servers, graceful shutdown
+git-svc/cmd/git-svc     main: config, startup checks, gRPC and HTTP servers, event relay, graceful shutdown
 git-svc/internal/
   browse                reads branches, tags, directories, files and commits with diffs (ADR 0013)
   config                env parsing and validation
@@ -40,11 +40,13 @@ git-svc/internal/
   storage               on-disk layout; create, trash and remove bare repositories
   db                    PostgreSQL pool (pooler-aware), schema check
   outbox                writes events into git_svc.outbox inside a transaction
+  relay                 delivers pending outbox rows to EventSink subscribers (ADR 0014)
   repo                  domain: validation, create/get/find/list/delete, push events, SQL for repositories
   server                gRPC handlers, interceptors, error to status mapping
   smarthttp             Git's smart HTTP (clone, fetch, push), /healthz and /readyz (ADR 0012)
   testdb                test helper: the TEST_POSTGRES_DSN database with migrations/ applied
 proto/git/v1/           the gRPC contract (source of truth)
+proto/events/v1/        EventSink: how events reach their consumers (source of truth)
 gen/go/                 generated code (make proto)
 migrations/             copy of our migrations in the git2 repo
 docs/decisions/         ADRs
@@ -104,6 +106,7 @@ git -c http.extraHeader="X-Git2-User-Id: 22222222-2222-4222-8222-222222222222" p
 | `GIT2_GITSVC_HTTP_ADDR` | `:9080` | HTTP listen address: smart HTTP for git clients, `/healthz`, `/readyz` |
 | `GIT2_GITSVC_DEV` | `false` | dev-only features (gRPC reflection) |
 | `GIT2_GITSVC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `GIT2_GITSVC_EVENT_SINKS` | empty | event subscribers, `host:port=type\|type`, comma-separated (e.g. `ci-svc:9090=git.v1.RepositoryPushed`). Empty: the relay is off and events wait in the outbox (ADR 0014) |
 
 ## Conventions
 

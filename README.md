@@ -10,6 +10,7 @@
 | :--- | :--- |
 | `git-svc/` | The Git service: repo storage on disk, push and clone, diff, merge, branch protection |
 | `proto/git/v1/` | This service's own gRPC API, consumed by the core services in [git2](https://github.com/git2-project/git2) |
+| `proto/events/v1/` | `EventSink`: how git2 services deliver domain events to each other |
 | `migrations/` | A copy of git-svc's SQL migrations; the originals live in git2's `migrations/` |
 | `docs/version_notes/` | What changed for the other lanes, newest first in [overview.md](docs/version_notes/overview.md) |
 
@@ -18,7 +19,7 @@
 - **Smart HTTP**: `git clone` / `git push` over HTTPS.
 - **SSH**: the same operations over SSH keys.
 - **Git LFS**: large file storage, with objects kept in the instance bucket.
-- **Push events**: every push that changes refs records `git.v1.RepositoryPushed`, which starts CI pipelines.
+- **Push events**: every push that changes refs records `git.v1.RepositoryPushed`, and a relay delivers it to the services that subscribed, such as ci-svc, which starts the pipelines.
 - **Branch protection**: a pre-receive hook that refuses pushes to protected branches.
 - **Diff and merge**: the engine behind merge requests in Dash.
 

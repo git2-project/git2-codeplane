@@ -6,6 +6,11 @@ lint:
     - STANDARD
     # Every service, RPC, message, field and enum must have a comment.
     - COMMENTS
+  ignore_only:
+    # events.v1.EventSink keeps the name agreed with ci-svc
+    # (git2-runner ADR 0010, git2-codeplane ADR 0014).
+    SERVICE_SUFFIX:
+      - proto/events/v1/event_sink.proto
 breaking:
   use:
     - FILE

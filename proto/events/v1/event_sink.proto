@@ -1,0 +1,77 @@
+// Delivery of domain events between git2 services.
+//
+// How an event travels:
+//   - A producer writes each event to its own outbox table, in the same
+//     transaction as the change it describes (git2-codeplane ADR 0007).
+//   - The producer's relay calls EventSink.Deliver on every consumer that
+//     subscribed to the event's type. The list of consumers is the
+//     producer's configuration (git2-runner ADR 0010, git2-codeplane
+//     ADR 0014).
+//   - Delivery is at least once. A consumer can receive the same event more
+//     than once and drops the repeats by event_id.
+//   - Events have no guaranteed order. The payload says how to order them
+//     where that matters (for example old_sha and new_sha in
+//     git.v1.RepositoryPushed).
+syntax = "proto3";
+
+package events.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// EventSink receives domain events. A consumer serves it on its internal
+// gRPC port, reachable only on the instance network; producers' relays call
+// it. The name was agreed with ci-svc, the first consumer, before this file
+// existed, so it keeps it instead of ending in "Service".
+service EventSink {
+  // Deliver hands one event to the consumer.
+  //
+  // The consumer only stores the event and answers. The work the event
+  // causes happens afterwards, so a slow dependency cannot hold up
+  // delivery. Relays wait at most 10 seconds for the answer.
+  //
+  // What the answer means to the relay:
+  //   - OK: the consumer stored the event, or had seen its event_id before.
+  //     The event is delivered.
+  //   - INVALID_ARGUMENT, FAILED_PRECONDITION: the consumer can never handle
+  //     this event. The relay logs it and does not send it to this consumer
+  //     again.
+  //   - Any other code: the relay tries again later, with a growing pause,
+  //     and never drops the event. This includes UNIMPLEMENTED, which gRPC
+  //     also answers when the server does not serve EventSink at all, for
+  //     example a consumer that does not have it yet.
+  //
+  // A consumer receives only the event types it subscribed to. If it still
+  // gets a type it does not handle, it answers INVALID_ARGUMENT.
+  rpc Deliver(DeliverRequest) returns (DeliverResponse);
+}
+
+// DeliverRequest is one event, as the producer stored it in its outbox.
+message DeliverRequest {
+  // ID of the event, a UUID. A repeated delivery of the same event has the
+  // same event_id.
+  string event_id = 1;
+
+  // Full protobuf name of the event message, for example
+  // "git.v1.RepositoryPushed". It says how to decode payload.
+  string event_type = 2;
+
+  // Kind of object the event is about, for example "repository".
+  string aggregate_type = 3;
+
+  // ID of that object, a UUID. For git-svc's events it is the repository
+  // ID.
+  string aggregate_id = 4;
+
+  // When the change happened, as recorded in the producer's transaction.
+  google.protobuf.Timestamp occurred_at = 5;
+
+  // The event message of type event_type in protobuf JSON. Decode it with
+  // a protobuf JSON parser (protojson in Go) into that message. The order
+  // of fields and the whitespace may differ from what the producer wrote,
+  // so do not compare payloads as text.
+  string payload = 6;
+}
+
+// DeliverResponse is the answer to Deliver. It is empty: an OK status means
+// the event is stored.
+message DeliverResponse {}

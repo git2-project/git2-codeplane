@@ -1,6 +1,6 @@
 # 0013. Reading repository content: RefService and CommitService
 
-- Status: Accepted, pending Bilge's review of the code-browsing part
+- Status: Accepted; Bilge (Dash) accepted the six assumptions on 2026-11-08
 - Date: 2026-11-03
 
 ## Context

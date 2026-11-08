@@ -1,8 +1,8 @@
 // Package outbox records domain events in git_svc.outbox.
 //
 // An event is written in the same transaction as the change it describes,
-// so it exists if and only if that change was committed. A relay (planned
-// for W2) reads pending rows and delivers them to consumers.
+// so it exists if and only if that change was committed. Package relay
+// reads pending rows and delivers them to consumers (ADR 0014).
 package outbox
 
 import (
@@ -13,10 +13,22 @@ import (
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+
+	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
 )
 
 // AggregateRepository is the aggregate type of events about a repository.
 const AggregateRepository = "repository"
+
+// EventTypes returns the event types git-svc writes: the full protobuf
+// names of the messages in proto/git/v1/events.proto.
+func EventTypes() []string {
+	return []string{
+		string(proto.MessageName(&gitv1.RepositoryCreated{})),
+		string(proto.MessageName(&gitv1.RepositoryDeleted{})),
+		string(proto.MessageName(&gitv1.RepositoryPushed{})),
+	}
+}
 
 // The payload is sent as text and cast to jsonb. A []byte argument would
 // travel as bytea when pgx runs in exec mode, which it does behind a

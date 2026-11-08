@@ -11,7 +11,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
+
+	"github.com/git2-project/git2-codeplane/git-svc/internal/outbox"
 )
 
 // Environment variable names read by Load.
@@ -23,6 +27,7 @@ const (
 	EnvStorageRoot      = "GIT2_STORAGE_ROOT"
 	EnvDev              = "GIT2_GITSVC_DEV"
 	EnvLogLevel         = "GIT2_GITSVC_LOG_LEVEL"
+	EnvEventSinks       = "GIT2_GITSVC_EVENT_SINKS"
 )
 
 // Defaults used when a variable is unset.
@@ -51,6 +56,19 @@ type Config struct {
 	Dev bool
 	// LogLevel is the minimum level written to the log.
 	LogLevel slog.Level
+	// EventSinks are the consumers the event relay delivers to (ADR 0014).
+	// Empty means the relay does not run and events stay in the outbox.
+	EventSinks []EventSink
+}
+
+// EventSink is one consumer of git-svc's events: a service that serves
+// events.v1.EventSink.
+type EventSink struct {
+	// Addr is the consumer's gRPC address, host:port.
+	Addr string
+	// Types are the event types it receives, full protobuf names such as
+	// "git.v1.RepositoryPushed". Each one is an event git-svc writes.
+	Types []string
 }
 
 // Load reads and validates the configuration from the process environment.
@@ -121,5 +139,67 @@ func parse(lookup func(string) (string, bool)) (Config, error) {
 		}
 	}
 
+	if v, ok := lookup(EnvEventSinks); ok && strings.TrimSpace(v) != "" {
+		sinks, err := parseEventSinks(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", EnvEventSinks, err))
+		}
+		cfg.EventSinks = sinks
+	}
+
 	return cfg, errors.Join(errs...)
+}
+
+// parseEventSinks reads a comma-separated list of consumers, each
+// "host:port=type|type", for example
+//
+//	ci-svc:9090=git.v1.RepositoryPushed
+//
+// Every problem is reported, not only the first.
+func parseEventSinks(v string) ([]EventSink, error) {
+	known := outbox.EventTypes()
+	var sinks []EventSink
+	var errs []error
+	seen := map[string]bool{}
+	for entry := range strings.SplitSeq(v, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		addr, types, ok := strings.Cut(entry, "=")
+		addr = strings.TrimSpace(addr)
+		if !ok {
+			errs = append(errs, fmt.Errorf("%q: want host:port=type|type", entry))
+			continue
+		}
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			errs = append(errs, fmt.Errorf("%q: %w", entry, err))
+			continue
+		}
+		if seen[addr] {
+			errs = append(errs, fmt.Errorf("%s is listed twice", addr))
+			continue
+		}
+		seen[addr] = true
+
+		sink := EventSink{Addr: addr}
+		for t := range strings.SplitSeq(types, "|") {
+			t = strings.TrimSpace(t)
+			switch {
+			case t == "":
+				errs = append(errs, fmt.Errorf("%s: empty event type", addr))
+			case !slices.Contains(known, t):
+				errs = append(errs, fmt.Errorf("%s: unknown event type %q (git-svc writes %s)", addr, t, strings.Join(known, ", ")))
+			case slices.Contains(sink.Types, t):
+				errs = append(errs, fmt.Errorf("%s: %s is listed twice", addr, t))
+			default:
+				sink.Types = append(sink.Types, t)
+			}
+		}
+		sinks = append(sinks, sink)
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return sinks, nil
 }

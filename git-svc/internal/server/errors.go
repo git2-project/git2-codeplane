@@ -9,10 +9,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 )
 
-// toStatus turns an error from package repo into a gRPC status error.
+// toStatus turns an error from package repo or browse into a gRPC status
+// error.
 //
 // Client-facing messages are fixed strings or a *repo.ValidationError,
 // which never repeats user input. Any other error can contain paths, SQL
@@ -25,6 +27,12 @@ func toStatus(ctx context.Context, log *slog.Logger, err error) error {
 		return status.Error(codes.InvalidArgument, invalid.Error())
 	case errors.Is(err, repo.ErrNotFound):
 		return status.Error(codes.NotFound, "repository not found")
+	case errors.Is(err, browse.ErrRefNotFound):
+		return status.Error(codes.NotFound, "ref not found")
+	case errors.Is(err, browse.ErrPathNotFound):
+		return status.Error(codes.NotFound, "path not found")
+	case errors.Is(err, browse.ErrCommitNotFound):
+		return status.Error(codes.NotFound, "commit not found")
 	case errors.Is(err, repo.ErrAlreadyExists):
 		return status.Error(codes.AlreadyExists, "the owner already has a repository with this name")
 	case errors.Is(err, context.Canceled):

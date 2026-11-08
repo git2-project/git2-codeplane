@@ -26,6 +26,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/gitcmd"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/storage"
@@ -467,9 +468,11 @@ func TestInvalidRequestsChangeNothing(t *testing.T) {
 
 // testEnv is one git-svc instance for one test.
 type testEnv struct {
-	client gitv1.RepositoryServiceClient
-	pool   *pgxpool.Pool
-	layout *storage.Layout
+	client  gitv1.RepositoryServiceClient
+	refs    gitv1.RefServiceClient
+	commits gitv1.CommitServiceClient
+	pool    *pgxpool.Pool
+	layout  *storage.Layout
 }
 
 // forEachMode runs test as a subtest per pgx mode, each with its own
@@ -497,7 +500,8 @@ func newTestEnv(t *testing.T, mode testdb.Mode) *testEnv {
 	}
 	// Server logs show up when a test fails or with -v.
 	log := slog.New(slog.NewTextHandler(t.Output(), nil))
-	srv := New(log, repo.NewService(pool, storage.NewStore(layout, git), log), Options{})
+	repos := repo.NewService(pool, storage.NewStore(layout, git), log)
+	srv := New(log, repos, browse.NewService(repos, layout, git), Options{})
 
 	lis := bufconn.Listen(1 << 20)
 	go func() { _ = srv.Serve(lis) }()
@@ -515,7 +519,13 @@ func newTestEnv(t *testing.T, mode testdb.Mode) *testEnv {
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 
-	return &testEnv{client: gitv1.NewRepositoryServiceClient(conn), pool: pool, layout: layout}
+	return &testEnv{
+		client:  gitv1.NewRepositoryServiceClient(conn),
+		refs:    gitv1.NewRefServiceClient(conn),
+		commits: gitv1.NewCommitServiceClient(conn),
+		pool:    pool,
+		layout:  layout,
+	}
 }
 
 // newOwner returns a fresh owner ID and deletes the owner's rows when the

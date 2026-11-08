@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/config"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/db"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/gitcmd"
@@ -95,7 +96,8 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	log.Info("database ready")
 
 	repos := repo.NewService(pool, storage.NewStore(layout, git), log)
-	grpcSrv := server.New(log, repos, server.Options{Reflection: cfg.Dev})
+	reader := browse.NewService(repos, layout, git)
+	grpcSrv := server.New(log, repos, reader, server.Options{Reflection: cfg.Dev})
 	httpSrv, err := smarthttp.New(smarthttp.Options{
 		Log:    log,
 		Layout: layout,

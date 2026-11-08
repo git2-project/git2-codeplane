@@ -13,8 +13,15 @@ import (
 // request and keeps user input out of git's argument list. A test compares
 // it with the real git on every case in its table (ADR 0009).
 func ValidateBranch(name string) error {
+	return ValidateRefName("default_branch", name)
+}
+
+// ValidateRefName applies the rules of ValidateBranch to a branch or tag
+// name given in field. A name that passes never starts with "-", so it
+// cannot be read as a git option.
+func ValidateRefName(field, name string) error {
 	if reason := branchProblem(name); reason != "" {
-		return invalid("default_branch", reason)
+		return invalid(field, reason)
 	}
 	return nil
 }

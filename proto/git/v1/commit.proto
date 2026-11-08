@@ -1,0 +1,406 @@
+// Reading a repository's content: directories, files and commits. Dash's
+// code browser and ci-svc (reading .git2-ci.yml) use it. Conventions are
+// those of repository.proto.
+//
+// Rules shared by every RPC here:
+//   - ref names what to read: a branch ("main"), a tag ("v1.0.0"), a full
+//     ref ("refs/heads/main", "refs/tags/v1.0.0") or a full 40-character
+//     commit SHA; only GetCommit takes a short SHA. Empty means the
+//     repository's default branch. A branch wins over a tag with the same
+//     name. Each answer carries the commit it read, so links built from it
+//     stay stable when the branch moves.
+//   - The default branch does not exist until something is pushed to it. A
+//     repository with commits only on other branches answers NOT_FOUND to
+//     an empty ref; ListBranches shows what it has.
+//   - path is relative to the repository root, without a leading or
+//     trailing "/", and without empty, "." or ".." parts. Empty means the
+//     root. It is matched literally: "*" is a file name, not a pattern.
+//   - Git stores names and messages as bytes. Those that are not valid
+//     UTF-8 come back with U+FFFD in place of the bad bytes, so such a
+//     path cannot be requested back.
+//   - File contents and patches are bytes: a file is not always UTF-8.
+syntax = "proto3";
+
+package git.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// CommitService reads directories, files and commits of a repository.
+service CommitService {
+  // GetTree lists one directory at a ref: not recursive, directories first,
+  // then by name (byte order).
+  //
+  // A repository without any commits answers with empty = true and no
+  // entries, whatever the ref and path.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id is not a UUID, ref or path breaks
+  //     the rules above, or path is a file or a submodule.
+  //   - NOT_FOUND: the repository, the ref or the path does not exist.
+  rpc GetTree(GetTreeRequest) returns (GetTreeResponse);
+
+  // GetBlob returns one file at a ref, for display.
+  //
+  // Up to 1 MiB of the file comes back; a larger file is cut there and
+  // marked truncated. A binary file (one with a NUL byte in its first
+  // 8000 bytes, as git decides) comes back without content: use
+  // GetRawBlob for its bytes.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: as for GetTree, or path is empty, a directory or
+  //     a submodule.
+  //   - NOT_FOUND: the repository, the ref or the file does not exist.
+  rpc GetBlob(GetBlobRequest) returns (GetBlobResponse);
+
+  // GetRawBlob streams the bytes of one file at a ref, whatever its size
+  // or type.
+  //
+  // The first message carries the file's size and name; every message
+  // carries the next piece of the content.
+  //
+  // Errors: as for GetBlob.
+  rpc GetRawBlob(GetRawBlobRequest) returns (stream GetRawBlobResponse);
+
+  // ListCommits returns one page of the commits reachable from a ref,
+  // newest first (git log order), optionally only those that changed a
+  // path.
+  //
+  // A repository without commits, and a path no commit changed, give an
+  // empty list.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: as for GetTree, page_size is negative, or
+  //     page_token is invalid or was issued for another repository or path.
+  //   - NOT_FOUND: the repository or the ref does not exist.
+  rpc ListCommits(ListCommitsRequest) returns (ListCommitsResponse);
+
+  // GetCommit returns one commit with its changes against its first parent
+  // (against nothing for a root commit).
+  //
+  // At most 300 files are listed. Patches are cut at 64 KiB per file and
+  // 1 MiB per commit; a file whose patch was cut has truncated = true and
+  // no patch.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id is not a UUID, sha is not 7 to 40
+  //     lowercase hex characters, or a short sha matches several objects.
+  //   - NOT_FOUND: the repository or the commit does not exist.
+  rpc GetCommit(GetCommitRequest) returns (GetCommitResponse);
+}
+
+// Signature is who wrote or committed a commit, and when.
+message Signature {
+  // Name as recorded in the commit.
+  string name = 1;
+
+  // Email as recorded in the commit, without the angle brackets.
+  string email = 2;
+
+  // When, as recorded in the commit. The time zone is not kept.
+  google.protobuf.Timestamp time = 3;
+}
+
+// Commit is one commit, without its changes.
+message Commit {
+  // Full 40-character SHA.
+  string sha = 1;
+
+  // SHAs of the parents: none for a root commit, two or more for a merge.
+  repeated string parent_shas = 2;
+
+  // Who wrote the change.
+  Signature author = 3;
+
+  // Who created the commit, for example when rebasing.
+  Signature committer = 4;
+
+  // First line of the message.
+  string title = 5;
+
+  // The whole message, without trailing newlines.
+  string message = 6;
+}
+
+// TreeEntryType is what a directory entry is.
+enum TreeEntryType {
+  // Not set. Never returned.
+  TREE_ENTRY_TYPE_UNSPECIFIED = 0;
+
+  // A regular or executable file.
+  TREE_ENTRY_TYPE_FILE = 1;
+
+  // A directory.
+  TREE_ENTRY_TYPE_DIRECTORY = 2;
+
+  // A symbolic link; its content is the target path.
+  TREE_ENTRY_TYPE_SYMLINK = 3;
+
+  // A submodule: a commit of another repository. git-svc cannot read it.
+  TREE_ENTRY_TYPE_SUBMODULE = 4;
+}
+
+// TreeEntry is one entry of a directory.
+message TreeEntry {
+  // Name within the directory, for example "README.md".
+  string name = 1;
+
+  // Path from the repository root, for example "docs/README.md".
+  string path = 2;
+
+  // What the entry is.
+  TreeEntryType type = 3;
+
+  // Git file mode in octal: "100644" (file), "100755" (executable),
+  // "040000" (directory), "120000" (symlink) or "160000" (submodule).
+  string mode = 4;
+
+  // SHA of the Git object: a blob, a tree, or for a submodule a commit of
+  // the other repository.
+  string sha = 5;
+
+  // Size in bytes, for files and symlinks only.
+  optional int64 size = 6;
+}
+
+// GetTreeRequest is the input of GetTree.
+message GetTreeRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // What to read; see the file comment. Empty means the default branch.
+  string ref = 2;
+
+  // Directory to list; see the file comment. Empty means the root.
+  string path = 3;
+}
+
+// GetTreeResponse is the output of GetTree.
+message GetTreeResponse {
+  // The ref that was read: the request's ref, or the default branch when
+  // the request named none.
+  string ref = 1;
+
+  // Commit the listing was read from. Empty when empty is true.
+  string commit_sha = 2;
+
+  // The directory, as in the request.
+  string path = 3;
+
+  // True when the repository has no commits yet; there are no entries then.
+  bool empty = 4;
+
+  // The entries: directories first, then the rest, each group by name in
+  // byte order.
+  repeated TreeEntry entries = 5;
+
+  // True when the directory has more than 10000 entries and only the first
+  // 10000 are listed.
+  bool truncated = 6;
+
+  // The last commit at or before commit_sha that changed this directory.
+  // For the root, the commit itself. Unset when empty is true, and when
+  // finding it took too long: for a directory untouched for long, git walks
+  // most of the history.
+  Commit last_commit = 7;
+}
+
+// GetBlobRequest is the input of GetBlob.
+message GetBlobRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // What to read; see the file comment. Empty means the default branch.
+  string ref = 2;
+
+  // The file; see the file comment. Required.
+  string path = 3;
+}
+
+// GetBlobResponse is the output of GetBlob.
+message GetBlobResponse {
+  // The ref that was read, as in GetTreeResponse.
+  string ref = 1;
+
+  // Commit the file was read from.
+  string commit_sha = 2;
+
+  // The file's path, as in the request.
+  string path = 3;
+
+  // The file's name: the last part of path.
+  string name = 4;
+
+  // SHA of the file's blob.
+  string sha = 5;
+
+  // Git file mode in octal, as in TreeEntry.
+  string mode = 6;
+
+  // TREE_ENTRY_TYPE_FILE or TREE_ENTRY_TYPE_SYMLINK.
+  TreeEntryType type = 7;
+
+  // Size of the whole file in bytes.
+  int64 size = 8;
+
+  // True when the file is binary. content is then empty.
+  bool binary = 9;
+
+  // True when the file is a Git LFS pointer. content is the pointer text;
+  // the real file is in the LFS store.
+  bool lfs = 10;
+
+  // True when the file is larger than 1 MiB and content holds only its
+  // first 1 MiB (possibly ending inside a UTF-8 character).
+  bool truncated = 11;
+
+  // The file's bytes, up to 1 MiB. Empty for binary files.
+  bytes content = 12;
+}
+
+// GetRawBlobRequest is the input of GetRawBlob.
+message GetRawBlobRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // What to read; see the file comment. Empty means the default branch.
+  string ref = 2;
+
+  // The file; see the file comment. Required.
+  string path = 3;
+}
+
+// GetRawBlobResponse is one message of GetRawBlob's stream.
+message GetRawBlobResponse {
+  // Size of the whole file in bytes. Set in the first message only.
+  int64 size = 1;
+
+  // The file's name: the last part of path. Set in the first message only.
+  string name = 2;
+
+  // The next piece of the file, at most 64 KiB. May be empty in the first
+  // message, and is empty in all messages for an empty file.
+  bytes data = 3;
+}
+
+// ListCommitsRequest is the input of ListCommits.
+message ListCommitsRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // Where history starts; see the file comment. Empty means the default
+  // branch. Ignored with a page_token, which keeps the first page's commit.
+  string ref = 2;
+
+  // Only commits that changed this file or directory; see the file
+  // comment. Empty means all commits. Renames are not followed.
+  string path = 3;
+
+  // Maximum number of commits to return. 0 means the default of 50.
+  // Values above 100 are treated as 100. Negative values are rejected.
+  int32 page_size = 4;
+
+  // Token from a previous response's next_page_token, to get the next
+  // page. Empty for the first page. Tokens are opaque, and valid only with
+  // the same repository_id and path.
+  string page_token = 5;
+}
+
+// ListCommitsResponse is the output of ListCommits.
+message ListCommitsResponse {
+  // Commits on this page, newest first.
+  repeated Commit commits = 1;
+
+  // Token for the next page. Empty if this is the last page.
+  string next_page_token = 2;
+}
+
+// GetCommitRequest is the input of GetCommit.
+message GetCommitRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // The commit: a full 40-character SHA or an unambiguous prefix of at
+  // least 7 characters, lowercase.
+  string sha = 2;
+}
+
+// GetCommitResponse is the output of GetCommit.
+message GetCommitResponse {
+  // The commit.
+  Commit commit = 1;
+
+  // Totals over all changed files, also those left out of files.
+  DiffStats stats = 2;
+
+  // Changed files, in git's order (by path), at most 300.
+  repeated FileDiff files = 3;
+
+  // True when more than 300 files changed and the rest are left out.
+  bool truncated = 4;
+}
+
+// DiffStats are the totals of a diff.
+message DiffStats {
+  // Number of changed files.
+  int32 files_changed = 1;
+
+  // Lines added, over all text files.
+  int32 additions = 2;
+
+  // Lines deleted, over all text files.
+  int32 deletions = 3;
+}
+
+// FileStatus is how a file changed.
+enum FileStatus {
+  // Not set. Never returned.
+  FILE_STATUS_UNSPECIFIED = 0;
+
+  // The file is new.
+  FILE_STATUS_ADDED = 1;
+
+  // The file's content or mode changed, or it changed type (for example
+  // from a file to a symlink).
+  FILE_STATUS_MODIFIED = 2;
+
+  // The file was removed.
+  FILE_STATUS_DELETED = 3;
+
+  // The file moved, possibly with changes (git's rename detection, at 50%
+  // similarity).
+  FILE_STATUS_RENAMED = 4;
+
+  // The file was copied. Reserved: git-svc does not detect copies yet.
+  FILE_STATUS_COPIED = 5;
+}
+
+// FileDiff is one changed file.
+message FileDiff {
+  // How the file changed.
+  FileStatus status = 1;
+
+  // Path before the change. Empty for an added file.
+  string old_path = 2;
+
+  // Path after the change. Empty for a deleted file.
+  string new_path = 3;
+
+  // Lines added. 0 for binary files.
+  int32 additions = 4;
+
+  // Lines deleted. 0 for binary files.
+  int32 deletions = 5;
+
+  // True when git treats the file as binary; there is no patch then.
+  bool binary = 6;
+
+  // True when the patch was too large to return (over 64 KiB, or over the
+  // commit's 1 MiB in total); patch is empty then.
+  bool truncated = 7;
+
+  // The unified diff hunks of this file, starting at the first "@@" line:
+  // without the "diff --git", "index", "---" and "+++" header lines. Empty
+  // when only the mode or the name changed, for binary files, and when
+  // truncated.
+  bytes patch = 8;
+}

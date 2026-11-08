@@ -19,7 +19,7 @@ func TestEnsureDirs(t *testing.T) {
 		}
 	}
 
-	for _, dir := range []string{l.ReposDir(), l.TmpDir(), l.TrashDir(), l.HomeDir()} {
+	for _, dir := range []string{l.ReposDir(), l.TmpDir(), l.TrashDir(), l.HomeDir(), l.HooksDir()} {
 		fi, err := os.Stat(dir)
 		if err != nil {
 			t.Fatalf("Stat(%s) error = %v", dir, err)

@@ -18,10 +18,11 @@
 - **Smart HTTP**: `git clone` / `git push` over HTTPS.
 - **SSH**: the same operations over SSH keys.
 - **Git LFS**: large file storage, with objects kept in the instance bucket.
-- **pre-receive**: server-side hooks that enforce branch protection and emit `repo.pushed` events.
+- **Push events**: every push that changes refs records `git.v1.RepositoryPushed`, which starts CI pipelines.
+- **Branch protection**: a pre-receive hook that refuses pushes to protected branches.
 - **Diff and merge**: the engine behind merge requests in Dash.
 
-Built on `git` and `go-git`. Callers never touch repository files directly; they go through the `git/v1` gRPC API.
+Built on `git` and `go-git`. Other services never touch repository files directly; they go through the `git/v1` gRPC API.
 
 ## Status
 
@@ -34,7 +35,7 @@ Open the repo in the devcontainer (VS Code → *Reopen in Container*). It has Go
 ```sh
 cp env.example .env    # fill in POSTGRES_DSN (the same shared DSN as in the git2 repo)
 make tests             # every test, including the Postgres ones
-make run               # git-svc on :9090, Ctrl-C stops it
+make run               # git-svc: gRPC on :9090, git clone/push over HTTP on :9080
 make lint
 ```
 

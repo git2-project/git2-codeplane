@@ -32,15 +32,16 @@ Read `docs/decisions/` (what is decided and why) before changing anything they c
 
 ```
 .devcontainer/          Go 1.26, git, psql, make + a throwaway PostgreSQL for tests
-git-svc/cmd/git-svc     main: config, startup checks, gRPC server, graceful shutdown
+git-svc/cmd/git-svc     main: config, startup checks, gRPC and HTTP servers, graceful shutdown
 git-svc/internal/
   config                env parsing and validation
   gitcmd                the only place that executes git
   storage               on-disk layout; create, trash and remove bare repositories
   db                    PostgreSQL pool (pooler-aware), schema check
   outbox                writes events into git_svc.outbox inside a transaction
-  repo                  domain: validation, create/get/find/list/delete, SQL for repositories
+  repo                  domain: validation, create/get/find/list/delete, push events, SQL for repositories
   server                gRPC handlers, interceptors, error to status mapping
+  smarthttp             Git's smart HTTP (clone, fetch, push), /healthz and /readyz (ADR 0012)
   testdb                test helper: the TEST_POSTGRES_DSN database with migrations/ applied
 proto/git/v1/           the gRPC contract (source of truth)
 gen/go/                 generated code (make proto)
@@ -50,7 +51,7 @@ docs/version_notes/     one note per change other lanes must know about; overvie
 env.example             template for .env
 ```
 
-A request flows `server → repo → (storage, db, outbox)`. `repo` knows nothing about gRPC; `server` knows no business rules.
+A request flows `server → repo → (storage, db, outbox)`. `repo` knows nothing about gRPC; `server` knows no business rules. Git clients take the other door: `smarthttp` runs `git upload-pack` / `git receive-pack` itself and calls `repo` only to look the repository up and to record a push.
 
 ## Development
 
@@ -61,7 +62,7 @@ Open the repo in the devcontainer (VS Code → *Reopen in Container*). It provid
 ```bash
 cp env.example .env    # POSTGRES_DSN: the same shared DSN as in the git2 repo
 make tests             # every test; Postgres tests run because TEST_POSTGRES_DSN is set
-make run               # git-svc on :9090, Ctrl-C stops it
+make run               # git-svc: gRPC on :9090, HTTP on :9080; Ctrl-C stops it
 ```
 
 Until the shared DB has the `git_svc` schema (the migration must be merged in git2 first), point `POSTGRES_DSN` at the test database: `postgres://git2:git2@postgres:5432/git2_test?sslmode=disable`.
@@ -85,13 +86,21 @@ go tool -modfile=tools.mod grpcurl -plaintext \
   localhost:9090 git.v1.RepositoryService/CreateRepository
 ```
 
+Use the repository with git over HTTP. There is no gateway in development, so a push sets the gateway's user header itself:
+
+```sh
+git clone http://localhost:9080/<repo-id>.git
+git -c http.extraHeader="X-Git2-User-Id: 22222222-2222-4222-8222-222222222222" push origin HEAD:refs/heads/main
+```
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `POSTGRES_DSN` | required | PostgreSQL connection string, same name as in git2 (never log it) |
 | `POSTGRES_MAX_CONNS` | `10` | connection pool size, 1 to 1000 |
 | `TEST_POSTGRES_DSN` | unset | throwaway DB for Postgres tests; they skip when it is unset. Never the shared DB |
-| `GIT2_STORAGE_ROOT` | required | absolute path; holds `repositories/`, `tmp/`, `trash/`, `home/` |
+| `GIT2_STORAGE_ROOT` | required | absolute path; holds `repositories/`, `tmp/`, `trash/`, `home/`, `hooks/`. Must allow executing files (the push hook); git-svc checks this at startup |
 | `GIT2_GITSVC_GRPC_ADDR` | `:9090` | gRPC listen address |
+| `GIT2_GITSVC_HTTP_ADDR` | `:9080` | HTTP listen address: smart HTTP for git clients, `/healthz`, `/readyz` |
 | `GIT2_GITSVC_DEV` | `false` | dev-only features (gRPC reflection) |
 | `GIT2_GITSVC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 

@@ -35,6 +35,8 @@ func toStatus(ctx context.Context, log *slog.Logger, err error) error {
 		return status.Error(codes.NotFound, "commit not found")
 	case errors.Is(err, repo.ErrAlreadyExists):
 		return status.Error(codes.AlreadyExists, "the owner already has a repository with this name")
+	case errors.Is(err, repo.ErrFilesExist):
+		return status.Error(codes.AlreadyExists, "the repository already has its files")
 	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, "request canceled")
 	case errors.Is(err, context.DeadlineExceeded):

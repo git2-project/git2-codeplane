@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net"
 	"testing"
@@ -67,6 +69,7 @@ func TestRegisteredServices(t *testing.T) {
 			gitv1.RepositoryService_ServiceDesc.ServiceName,
 			gitv1.RefService_ServiceDesc.ServiceName,
 			gitv1.CommitService_ServiceDesc.ServiceName,
+			gitv1.BundleService_ServiceDesc.ServiceName,
 		} {
 			if _, ok := services[name]; !ok {
 				t.Errorf("Reflection=%v: %s not registered", dev, name)
@@ -74,6 +77,36 @@ func TestRegisteredServices(t *testing.T) {
 		}
 	}
 }
+
+func TestLogStream(t *testing.T) {
+	var logs bytes.Buffer
+	interceptor := logStream(slog.New(slog.NewJSONHandler(&logs, nil)))
+	info := &grpc.StreamServerInfo{FullMethod: "/git.v1.BundleService/RestoreBundle", IsClientStream: true}
+
+	err := interceptor(nil, &fakeStream{ctx: t.Context()}, info, func(any, grpc.ServerStream) error {
+		return status.Error(codes.AlreadyExists, "the repository already has its files")
+	})
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("error = %v, want the handler's", err)
+	}
+	var line struct {
+		Level, Msg, Method, Code string
+	}
+	if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
+		t.Fatalf("log %q: %v", logs.String(), err)
+	}
+	if line.Level != "INFO" || line.Msg != "rpc" || line.Method != info.FullMethod || line.Code != "AlreadyExists" {
+		t.Errorf("log line = %+v, want INFO rpc %s AlreadyExists", line, info.FullMethod)
+	}
+}
+
+// fakeStream is a grpc.ServerStream that only has a context.
+type fakeStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (f *fakeStream) Context() context.Context { return f.ctx }
 
 func TestRecoverUnary(t *testing.T) {
 	interceptor := recoverUnary(discard)

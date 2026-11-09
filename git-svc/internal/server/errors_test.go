@@ -34,6 +34,7 @@ func TestToStatus(t *testing.T) {
 		{"validation wrapped", fmt.Errorf("create: %w", repo.ValidateName("x.git")), codes.InvalidArgument, `name: must not end with ".git"`, ""},
 		{"not found wrapped", fmt.Errorf("get repository: %w", repo.ErrNotFound), codes.NotFound, "repository not found", ""},
 		{"already exists wrapped", fmt.Errorf("%w: %q", repo.ErrAlreadyExists, "payments"), codes.AlreadyExists, "the owner already has a repository with this name", ""},
+		{"files exist wrapped", fmt.Errorf("restore repository: %w", repo.ErrFilesExist), codes.AlreadyExists, "the repository already has its files", ""},
 		{"ref not found", browse.ErrRefNotFound, codes.NotFound, "ref not found", ""},
 		{"path not found", browse.ErrPathNotFound, codes.NotFound, "path not found", ""},
 		{"commit not found", fmt.Errorf("get commit: %w", browse.ErrCommitNotFound), codes.NotFound, "commit not found", ""},

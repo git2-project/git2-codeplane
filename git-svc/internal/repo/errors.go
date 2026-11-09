@@ -17,6 +17,9 @@ var (
 	// ErrAlreadyExists means the owner already has a live repository with
 	// the same name, compared case-insensitively.
 	ErrAlreadyExists = errors.New("repository already exists")
+	// ErrFilesExist means RestoreBundle found the repository's files already
+	// on disk.
+	ErrFilesExist = errors.New("repository files already exist")
 )
 
 // ValidationError says which input field is invalid and why. Its message

@@ -37,10 +37,10 @@ git-svc/internal/
   browse                reads branches, tags, directories, files and commits with diffs (ADR 0013)
   config                env parsing and validation
   gitcmd                the only place that executes git
-  storage               on-disk layout; create, trash and remove bare repositories
+  storage               on-disk layout; create, trash and remove bare repositories; bundle and restore them
   db                    PostgreSQL pool (pooler-aware), schema check
   outbox                writes events into git_svc.outbox inside a transaction
-  repo                  domain: validation, create/get/find/list/delete, push events, SQL for repositories
+  repo                  domain: validation, create/get/find/list/delete, push events, bundles for backups, SQL for repositories
   server                gRPC handlers, interceptors, error to status mapping
   smarthttp             Git's smart HTTP (clone, fetch, push), /healthz and /readyz (ADR 0012)
   testdb                test helper: the TEST_POSTGRES_DSN database with migrations/ applied
@@ -52,7 +52,7 @@ docs/version_notes/     one note per change other lanes must know about; overvie
 env.example             template for .env
 ```
 
-A request flows `server → repo → (storage, db, outbox)`. `repo` knows nothing about gRPC; `server` knows no business rules. Reads of repository content (RefService, CommitService) flow `server → browse`, which asks `repo` only whether the repository is live. Git clients take the other door: `smarthttp` runs `git upload-pack` / `git receive-pack` itself and calls `repo` only to look the repository up and to record a push.
+A request flows `server → repo → (storage, db, outbox)`. `repo` knows nothing about gRPC; `server` knows no business rules. BundleService (backups, ADR 0015) takes the same path: `repo` checks the row, `storage` runs `git bundle` and the restore. Reads of repository content (RefService, CommitService) flow `server → browse`, which asks `repo` only whether the repository is live. Git clients take the other door: `smarthttp` runs `git upload-pack` / `git receive-pack` itself and calls `repo` only to look the repository up and to record a push.
 
 ## Development
 

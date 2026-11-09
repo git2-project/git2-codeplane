@@ -24,6 +24,7 @@ var healthServices = []string{
 	gitv1.RepositoryService_ServiceDesc.ServiceName,
 	gitv1.RefService_ServiceDesc.ServiceName,
 	gitv1.CommitService_ServiceDesc.ServiceName,
+	gitv1.BundleService_ServiceDesc.ServiceName,
 }
 
 // Options configure New.
@@ -38,18 +39,20 @@ type Server struct {
 	health *health.Server
 }
 
-// New builds the gRPC server with its interceptors, RepositoryService
-// backed by repos, RefService and CommitService backed by reader, and the
-// health service. Health reports NOT_SERVING until Serve is called.
+// New builds the gRPC server with its interceptors, RepositoryService and
+// BundleService backed by repos, RefService and CommitService backed by
+// reader, and the health service. Health reports NOT_SERVING until Serve is
+// called.
 func New(log *slog.Logger, repos *repo.Service, reader *browse.Service, opts Options) *Server {
 	gs := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(logUnary(log), recoverUnary(log)),
-		grpc.ChainStreamInterceptor(recoverStream(log)),
+		grpc.ChainStreamInterceptor(logStream(log), recoverStream(log)),
 	)
 
 	gitv1.RegisterRepositoryServiceServer(gs, &repositoryServer{repos: repos, log: log})
 	gitv1.RegisterRefServiceServer(gs, &refServer{reader: reader, log: log})
 	gitv1.RegisterCommitServiceServer(gs, &commitServer{reader: reader, log: log})
+	gitv1.RegisterBundleServiceServer(gs, &bundleServer{repos: repos, log: log})
 
 	hs := health.NewServer()
 	for _, name := range healthServices {

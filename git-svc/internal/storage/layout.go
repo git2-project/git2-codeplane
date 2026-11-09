@@ -2,6 +2,7 @@
 //
 //	<root>/repositories/<shard>/<id>.git  live bare repositories
 //	<root>/tmp/<id>                       repositories being created
+//	<root>/tmp/<id>.restore-*/            restores in progress (bundle and repository)
 //	<root>/trash/<id>.git                 deleted repositories awaiting purge
 //	<root>/home/                          HOME for git processes
 //	<root>/hooks/                         git-svc's Git hooks (core.hooksPath)

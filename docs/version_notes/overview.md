@@ -23,6 +23,7 @@ the right month folder and add a line at the top of that month's table below.
 
 | Date | What changed | Affects | Tag |
 |---|---|---|---|
+| [9 Nov](2026/11/09_11.md) | New `BundleService` for backups, to be called only by backup-svc and `git2ctl restore`. `ListAllRepositories` lists every live repository. `CreateBundle` streams one repository as a Git bundle; an empty repository is a single `empty: true` message. `RestoreBundle` puts the bundle back under the same ID after the database is restored. Deploy: build the backup and restore steps on it (B-01). | Deploy | 🟠 Action |
 | [6 Nov](2026/11/06_11.md) | Port 9080 drops a client that sends or reads nothing for 5 minutes, runs at most 32 Git operations at once (then `503`) and limits the ref updates of a push to 64 MiB (then `413`). `RefUpdate.forced` can now be unknown (no key in the JSON), and events have no guaranteed order. Deploy: add the limits to the gateway contract. CI: treat a missing `forced` as unknown. | Deploy, CI | 🟠 Action |
 | [3 Nov](2026/11/03_11.md) | `RefService` and `CommitService` read branches, tags, directories, files and commits with their diffs, behind dash-api's code-browsing endpoints. ci-svc can read `.git2-ci.yml` with `GetBlob`. Dash: review the six assumptions in ADR 0013. | Dash, CI | 🟠 Action |
 

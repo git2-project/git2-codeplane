@@ -23,6 +23,8 @@
 //   - RefService (ref.proto): list branches and tags.
 //   - CommitService (commit.proto): directories, files and commits, for the
 //     code browser and for ci-svc.
+//   - BundleService (bundle.proto): whole repositories as Git bundles, for
+//     backup-svc and restores only.
 //
 // Planned services, not available yet:
 //   - Creating and deleting branches and tags through the API (W4-W5).

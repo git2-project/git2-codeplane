@@ -1,0 +1,131 @@
+// Copying whole repositories out of git-svc and back in, for backups.
+// backup-svc and `git2ctl restore` use it (git2-deploy,
+// docs/api/snapshot-format.md). Conventions are those of repository.proto.
+//
+// A bundle is Git's own one-file format for a repository: every ref and the
+// objects they need (`git help bundle`). `git clone`, `git fetch` and
+// `git bundle verify` read it, so a backup can be checked without git-svc.
+syntax = "proto3";
+
+package git.v1;
+
+import "git/v1/repository.proto";
+
+// BundleService backs up and restores repositories as Git bundles.
+//
+// Only backup-svc and `git2ctl restore` may call it. Unlike the other
+// services, it reads repositories whatever their owner, and RestoreBundle
+// writes a repository from the caller's data. Services that act for a user
+// (gateway, dash-api) must never call it.
+//
+// A backup runs pg_dump first, which saves the repository rows with the
+// rest of the database, then ListAllRepositories, then CreateBundle for
+// each repository listed. A restore loads the database first, so that every
+// row exists again, then calls RestoreBundle for each bundle.
+service BundleService {
+  // ListAllRepositories returns one page of the live repositories of every
+  // owner, sorted by ID.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: page_size is negative, or page_token is invalid.
+  rpc ListAllRepositories(ListAllRepositoriesRequest) returns (ListAllRepositoriesResponse);
+
+  // CreateBundle streams a repository as a Git bundle of all its refs
+  // (`git bundle create --all`): branches, tags, notes and every other ref
+  // under refs/, plus HEAD when it points to a commit.
+  //
+  // The bundle is a consistent copy of the refs as they were when it
+  // started. Pushes are not blocked meanwhile; their changes are simply
+  // not in it.
+  //
+  // Git cannot bundle a repository without refs (nothing pushed yet). Its
+  // stream is a single message with empty = true and no data. Store it as
+  // an empty file, and restore it by sending no data to RestoreBundle.
+  //
+  // Only a stream that ends with OK holds the whole bundle; after an error,
+  // discard what arrived. The size is not known before the stream ends.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id is not a UUID.
+  //   - NOT_FOUND: no live repository has this ID.
+  rpc CreateBundle(CreateBundleRequest) returns (stream CreateBundleResponse);
+
+  // RestoreBundle recreates a repository from a bundle made by CreateBundle,
+  // with the same ID.
+  //
+  // The repository's row must exist and be live: restore the database
+  // first. Every ref of the bundle is written as it is, and HEAD points to
+  // the row's default_branch. The bundle's own HEAD is not used.
+  //
+  // The first message names the repository. It and the following messages
+  // carry the bundle's bytes in order. No data at all creates an empty
+  // repository, the counterpart of CreateBundle's empty = true.
+  //
+  // The repository appears complete or not at all: it is built aside and
+  // moved into place only after git has read the whole bundle. A restore
+  // writes no event, so it starts no CI pipeline, and it runs no hooks.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id is missing or not a UUID, or is set
+  //     in a later message; or the data is not a whole bundle with at least
+  //     one ref under refs/.
+  //   - NOT_FOUND: no live repository has this ID.
+  //   - ALREADY_EXISTS: the repository already has its files, for example
+  //     from an earlier RestoreBundle whose answer was lost. Nothing was
+  //     changed; a restore can count it as done.
+  rpc RestoreBundle(stream RestoreBundleRequest) returns (RestoreBundleResponse);
+}
+
+// ListAllRepositoriesRequest is the input of ListAllRepositories.
+message ListAllRepositoriesRequest {
+  // Maximum number of repositories to return. 0 means the default of 100.
+  // Values above 1000 are treated as 1000. Negative values are rejected.
+  int32 page_size = 1;
+
+  // Token from a previous response's next_page_token, to get the next
+  // page. Empty for the first page. Tokens are opaque: do not parse or
+  // build them.
+  string page_token = 2;
+}
+
+// ListAllRepositoriesResponse is the output of ListAllRepositories.
+message ListAllRepositoriesResponse {
+  // Repositories on this page, sorted by ID. Deleted repositories are not
+  // listed.
+  repeated Repository repositories = 1;
+
+  // Token for the next page. Empty if this is the last page.
+  string next_page_token = 2;
+}
+
+// CreateBundleRequest is the input of CreateBundle.
+message CreateBundleRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+}
+
+// CreateBundleResponse is one message of CreateBundle's stream.
+message CreateBundleResponse {
+  // True if the repository has no refs, so there is no bundle. This is then
+  // the only message, and data is empty.
+  bool empty = 1;
+
+  // The next piece of the bundle, at most 64 KiB.
+  bytes data = 2;
+}
+
+// RestoreBundleRequest is one message of RestoreBundle's stream.
+message RestoreBundleRequest {
+  // ID of the repository to restore. Required in the first message, and
+  // must be empty in every later one.
+  string repository_id = 1;
+
+  // The next piece of the bundle, in order. Pieces may have any size up to
+  // gRPC's message limit of 4 MiB; 64 KiB is a good size. Empty in every
+  // message for an empty repository.
+  bytes data = 2;
+}
+
+// RestoreBundleResponse is the output of RestoreBundle. It is empty on
+// purpose, so fields can be added later without breaking callers.
+message RestoreBundleResponse {}

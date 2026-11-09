@@ -21,6 +21,7 @@
 - **Push events**: every push that changes refs records `git.v1.RepositoryPushed`, which starts CI pipelines.
 - **Branch protection**: a pre-receive hook that refuses pushes to protected branches.
 - **Diff and merge**: the engine behind merge requests in Dash.
+- **Backups**: every repository as a Git bundle for backup-svc, and back in on restore.
 
 Built on the `git` CLI. Other services never touch repository files directly; they go through the `git/v1` gRPC API.
 

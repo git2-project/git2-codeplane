@@ -23,6 +23,7 @@ the right month folder and add a line at the top of that month's table below.
 
 | Date | What changed | Affects | Tag |
 |---|---|---|---|
+| [8 Nov](2026/11/08_11.md) | git-svc delivers its events: a relay pushes each outbox event to the subscribers of its type through the new `events.v1.EventSink.Deliver`, configured with `GIT2_GITSVC_EVENT_SINKS`. `UNIMPLEMENTED` is retried, not permanent. CI: approve the contract, serve `EventSink`. Deploy: set the variable once ci-svc runs. | CI, Deploy | 🟠 Action |
 | [6 Nov](2026/11/06_11.md) | Port 9080 drops a client that sends or reads nothing for 5 minutes, runs at most 32 Git operations at once (then `503`) and limits the ref updates of a push to 64 MiB (then `413`). `RefUpdate.forced` can now be unknown (no key in the JSON), and events have no guaranteed order. Deploy: add the limits to the gateway contract. CI: treat a missing `forced` as unknown. | Deploy, CI | 🟠 Action |
 | [3 Nov](2026/11/03_11.md) | `RefService` and `CommitService` read branches, tags, directories, files and commits with their diffs, behind dash-api's code-browsing endpoints. ci-svc can read `.git2-ci.yml` with `GetBlob`. Dash: review the six assumptions in ADR 0013. | Dash, CI | 🟠 Action |
 

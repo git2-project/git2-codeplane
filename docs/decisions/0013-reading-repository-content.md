@@ -1,6 +1,6 @@
 # 0013. Reading repository content: RefService and CommitService
 
-- Status: Accepted; Bilge (Dash) accepted the six assumptions on 2026-11-08
+- Status: Accepted; Bilge (Dash) accepted the six assumptions on 2026-11-08. ADR 0016 adds `GetArchive` to CommitService
 - Date: 2026-11-03
 
 ## Context

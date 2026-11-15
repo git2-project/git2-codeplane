@@ -34,7 +34,7 @@ Read `docs/decisions/` (what is decided and why) before changing anything they c
 .devcontainer/          Go 1.26, git, psql, make + a throwaway PostgreSQL for tests
 git-svc/cmd/git-svc     main: config, startup checks, gRPC and HTTP servers, graceful shutdown
 git-svc/internal/
-  browse                reads branches, tags, directories, files and commits with diffs (ADR 0013)
+  browse                reads branches, tags, directories, files and commits with diffs (ADR 0013); archives a commit for CI jobs (ADR 0016)
   config                env parsing and validation
   gitcmd                the only place that executes git
   storage               on-disk layout; create, trash and remove bare repositories

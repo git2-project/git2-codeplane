@@ -19,6 +19,7 @@
 - **SSH**: the same operations over SSH keys.
 - **Git LFS**: large file storage, with objects kept in the instance bucket.
 - **Push events**: every push that changes refs records `git.v1.RepositoryPushed`, which starts CI pipelines.
+- **Source for CI jobs**: a commit's files as a tar archive, which ci-svc hands to its runners.
 - **Branch protection**: a pre-receive hook that refuses pushes to protected branches.
 - **Diff and merge**: the engine behind merge requests in Dash.
 

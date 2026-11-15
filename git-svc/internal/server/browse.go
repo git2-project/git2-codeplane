@@ -17,6 +17,9 @@ import (
 // rawChunk is the most file content one GetRawBlobResponse carries.
 const rawChunk = 64 << 10
 
+// archiveChunk is the most archive data one GetArchiveResponse carries.
+const archiveChunk = 64 << 10
+
 // refServer implements gitv1.RefServiceServer on top of browse.Service.
 type refServer struct {
 	gitv1.UnimplementedRefServiceServer
@@ -168,6 +171,44 @@ func (r *rawSender) Write(p []byte) (int, error) {
 	// Send keeps no reference to the message after it returns, but bufio
 	// reuses p, so the message gets its own copy anyway.
 	if err := r.stream.Send(&gitv1.GetRawBlobResponse{Data: append([]byte(nil), p...)}); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (s *commitServer) GetArchive(req *gitv1.GetArchiveRequest, stream grpc.ServerStreamingServer[gitv1.GetArchiveResponse]) error {
+	ctx := stream.Context()
+	id, err := repo.ParseID("repository_id", req.GetRepositoryId())
+	if err != nil {
+		return toStatus(ctx, s.log, err)
+	}
+	a, err := s.reader.OpenArchive(ctx, id, req.GetRef())
+	if err != nil {
+		return toStatus(ctx, s.log, err)
+	}
+	if err := stream.Send(&gitv1.GetArchiveResponse{CommitSha: a.CommitSHA}); err != nil {
+		return err
+	}
+	// As in GetRawBlob, the buffer turns git's small writes into messages of
+	// archiveChunk bytes.
+	w := bufio.NewWriterSize(&archiveSender{stream: stream}, archiveChunk)
+	if err := s.reader.WriteArchive(ctx, a, w); err != nil {
+		return toStatus(ctx, s.log, err)
+	}
+	if err := w.Flush(); err != nil {
+		return toStatus(ctx, s.log, err)
+	}
+	return nil
+}
+
+// archiveSender sends each write as one GetArchiveResponse.
+type archiveSender struct {
+	stream grpc.ServerStreamingServer[gitv1.GetArchiveResponse]
+}
+
+func (a *archiveSender) Write(p []byte) (int, error) {
+	// bufio reuses p, so the message gets its own copy.
+	if err := a.stream.Send(&gitv1.GetArchiveResponse{Data: append([]byte(nil), p...)}); err != nil {
 		return 0, err
 	}
 	return len(p), nil

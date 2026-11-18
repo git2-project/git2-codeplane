@@ -200,6 +200,93 @@ func TestWriteBundleStopsWhenWriterFails(t *testing.T) {
 	}
 }
 
+// TestWriteBundleOfTrashedRepository covers a delete that moves the
+// repository to the trash after the caller found its row live. Only that
+// case is ErrTrashed; files that are simply missing are a fault.
+func TestWriteBundleOfTrashedRepository(t *testing.T) {
+	s, l, _ := newStore(t)
+	trashed, lost, notDir := uuid.New(), uuid.New(), uuid.New()
+	for _, id := range []uuid.UUID{trashed, lost} {
+		if err := s.Init(t.Context(), id, "trunk"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Trash(trashed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(l.RepoPath(lost)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(l.RepoPath(notDir)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(l.RepoPath(notDir), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		id      uuid.UUID
+		trashed bool
+	}{
+		{"moved to the trash", trashed, true},
+		{"missing", lost, false},
+		{"not a directory", notDir, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			_, err := s.WriteBundle(t.Context(), tt.id, &out)
+			if err == nil {
+				t.Fatal("WriteBundle() error = nil, want an error")
+			}
+			if got := errors.Is(err, ErrTrashed); got != tt.trashed {
+				t.Errorf("WriteBundle() error = %v; matches ErrTrashed = %v, want %v", err, got, tt.trashed)
+			}
+			if out.Len() != 0 {
+				t.Errorf("WriteBundle() wrote %d bytes, want none", out.Len())
+			}
+		})
+	}
+}
+
+func TestRemoveRestoreLeftovers(t *testing.T) {
+	s, l, _ := newStore(t)
+	left := filepath.Join(l.TmpDir(), uuid.NewString()+restoreMark+"123")
+	if err := os.MkdirAll(left, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(left, stagedBundle), []byte("bundle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A create in progress and a file that only looks like a restore stay.
+	creating := l.TmpPath(uuid.New())
+	if err := os.MkdirAll(creating, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(l.TmpDir(), "notes"+restoreMark+"txt")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.RemoveRestoreLeftovers()
+	if err != nil || n != 1 {
+		t.Fatalf("RemoveRestoreLeftovers() = %d, %v; want 1, nil", n, err)
+	}
+	if _, err := os.Lstat(left); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("unfinished restore is still there: %v", err)
+	}
+	for _, path := range []string{creating, file} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Errorf("%s was removed: %v", path, err)
+		}
+	}
+
+	if n, err := s.RemoveRestoreLeftovers(); err != nil || n != 0 {
+		t.Errorf("second RemoveRestoreLeftovers() = %d, %v; want 0, nil", n, err)
+	}
+}
+
 // TestBundleWhilePushing takes bundles while pushes land. Each bundle must
 // restore to a complete repository whose refs are those of one moment.
 func TestBundleWhilePushing(t *testing.T) {

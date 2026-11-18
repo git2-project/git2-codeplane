@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -22,6 +24,9 @@ var (
 	// given to Restore: it is not a bundle, it is cut short or damaged, it
 	// needs commits it does not carry, or it has no refs.
 	ErrInvalidBundle = errors.New("not a complete git bundle")
+	// ErrTrashed means the repository's directory was moved to the trash
+	// while the Store worked on it: the repository was deleted.
+	ErrTrashed = errors.New("repository moved to the trash")
 )
 
 // Names inside a restore's staging directory.
@@ -30,12 +35,17 @@ const (
 	stagedRepo   = "repository.git"
 )
 
+// restoreMark is in the name of every restore's staging directory under
+// tmp: <id>.restore-<random>.
+const restoreMark = ".restore-"
+
 // WriteBundle writes the repository id to w as a Git bundle of every ref
 // and HEAD (`git bundle create --all`). Git cannot bundle a repository
 // without refs: then WriteBundle writes nothing and returns empty = true.
 //
 // Only ctx bounds the call; a large repository can take minutes. If w
-// fails, git is stopped and w's error is returned.
+// fails, git is stopped and w's error is returned. If git fails because a
+// delete moved the repository to the trash, the error matches ErrTrashed.
 func (s *Store) WriteBundle(ctx context.Context, id uuid.UUID, w io.Writer) (empty bool, err error) {
 	dir := s.layout.RepoPath(id)
 	if err := within(s.layout.ReposDir(), dir); err != nil {
@@ -43,7 +53,7 @@ func (s *Store) WriteBundle(ctx context.Context, id uuid.UUID, w io.Writer) (emp
 	}
 	hasRefs, err := s.hasRefs(ctx, dir)
 	if err != nil {
-		return false, err
+		return false, s.trashed(id, err)
 	}
 	if !hasRefs {
 		return true, nil
@@ -55,9 +65,48 @@ func (s *Store) WriteBundle(ctx context.Context, id uuid.UUID, w io.Writer) (emp
 		return false, out.err
 	}
 	if err != nil {
-		return false, fmt.Errorf("create bundle: %w", err)
+		return false, s.trashed(id, fmt.Errorf("create bundle: %w", err))
 	}
 	return false, nil
+}
+
+// trashed marks err, an error of git run in the repository id, as
+// ErrTrashed when the repository's directory is gone and its trash
+// directory exists. A delete commits first and moves the directory after,
+// so a caller that found the repository live can still lose it before git
+// starts. A directory that is gone without being in the trash is a fault,
+// and err is returned as it is.
+func (s *Store) trashed(id uuid.UUID, err error) error {
+	if _, statErr := os.Lstat(s.layout.RepoPath(id)); !errors.Is(statErr, fs.ErrNotExist) {
+		return err
+	}
+	if _, statErr := os.Lstat(s.layout.TrashPath(id)); statErr != nil {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrTrashed, err)
+}
+
+// RemoveRestoreLeftovers deletes the staging directories that restores left
+// in tmp when git-svc stopped during them; each can hold a whole bundle. It
+// must run before git-svc serves, when no restore can be running: one
+// git-svc serves a storage root (ADR 0005). It returns how many it removed.
+func (s *Store) RemoveRestoreLeftovers() (int, error) {
+	tmp := s.layout.TmpDir()
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		return 0, fmt.Errorf("list %s: %w", tmp, err)
+	}
+	removed := 0
+	for _, e := range entries {
+		if !e.IsDir() || !strings.Contains(e.Name(), restoreMark) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(tmp, e.Name())); err != nil {
+			return removed, fmt.Errorf("remove unfinished restore: %w", err)
+		}
+		removed++
+	}
+	return removed, nil
 }
 
 // Restore creates the repository id from the Git bundle read from bundle,
@@ -85,7 +134,7 @@ func (s *Store) Restore(ctx context.Context, id uuid.UUID, branch string, bundle
 
 	// A directory of its own, so that two restores of the same ID cannot
 	// share files; the second one fails at the rename.
-	staging, err := os.MkdirTemp(s.layout.TmpDir(), id.String()+".restore-")
+	staging, err := os.MkdirTemp(s.layout.TmpDir(), id.String()+restoreMark)
 	if err != nil {
 		return fmt.Errorf("create staging directory: %w", err)
 	}

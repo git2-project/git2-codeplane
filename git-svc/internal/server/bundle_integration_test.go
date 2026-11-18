@@ -150,11 +150,25 @@ func TestBundleErrors(t *testing.T) {
 		err := env.restoreBundle(t, live.GetId(), nil, bundleChunk)
 		wantCode(t, "RestoreBundle over existing files", err, codes.AlreadyExists)
 
+		// A delete moves the files to the trash after it commits, so a
+		// bundle that found the row live can find the files gone. The row
+		// stays live here to hold that moment.
+		racing := env.create(t, &gitv1.CreateRepositoryRequest{OwnerId: owner, Name: "racing"})
+		racingID := uuid.MustParse(racing.GetId())
+		if err := os.Rename(env.layout.RepoPath(racingID), env.layout.TrashPath(racingID)); err != nil {
+			t.Fatal(err)
+		}
+		_, err = env.createBundle(t, racing.GetId())
+		wantCode(t, "CreateBundle of a repository moved to the trash", err, codes.NotFound)
+
 		// The next cases need a repository whose files are gone.
 		liveID := uuid.MustParse(live.GetId())
 		if err := os.RemoveAll(env.layout.RepoPath(liveID)); err != nil {
 			t.Fatal(err)
 		}
+		// Files gone without a delete are a fault, not a deleted repository.
+		_, err = env.createBundle(t, live.GetId())
+		wantCode(t, "CreateBundle without files", err, codes.Internal)
 
 		stream, err := env.bundles.RestoreBundle(t.Context())
 		if err != nil {

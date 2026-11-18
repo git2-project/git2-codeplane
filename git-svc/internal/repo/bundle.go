@@ -16,12 +16,18 @@ import (
 // refs, for a backup (ADR 0015). A repository without refs has no bundle:
 // then WriteBundle writes nothing and returns empty = true.
 //
-// Only ctx bounds the call. If w fails, its error is returned.
+// Only ctx bounds the call. If w fails, its error is returned. A repository
+// deleted after the check of its row gives ErrNotFound as well.
 func (s *Service) WriteBundle(ctx context.Context, id uuid.UUID, w io.Writer) (empty bool, err error) {
 	if _, err := s.Get(ctx, id); err != nil {
 		return false, err
 	}
 	empty, err = s.store.WriteBundle(ctx, id, w)
+	if errors.Is(err, storage.ErrTrashed) {
+		// Delete commits, then moves the files to the trash: git found the
+		// directory gone after Get saw the row live.
+		return false, fmt.Errorf("bundle repository %s: %w", id, ErrNotFound)
+	}
 	if err != nil {
 		return false, fmt.Errorf("bundle repository %s: %w", id, err)
 	}

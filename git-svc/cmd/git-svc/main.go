@@ -90,6 +90,16 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	}
 	log.Info("git found", slog.String("path", git.Path()), slog.String("version", version.String()))
 
+	store := storage.NewStore(layout, git)
+	// Nothing is served yet, so no restore is running (ADR 0015). Leftovers
+	// only take disk space, so failing to remove them does not stop git-svc.
+	switch n, err := store.RemoveRestoreLeftovers(); {
+	case err != nil:
+		log.Warn("remove unfinished restores", slog.String("err", err.Error()))
+	case n > 0:
+		log.Info("removed unfinished restores", slog.Int("count", n))
+	}
+
 	pool, err := db.Open(ctx, cfg.PostgresDSN, cfg.PostgresMaxConns)
 	if err != nil {
 		return err
@@ -100,7 +110,7 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	}
 	log.Info("database ready")
 
-	repos := repo.NewService(pool, storage.NewStore(layout, git), log)
+	repos := repo.NewService(pool, store, log)
 	reader := browse.NewService(repos, layout, git)
 	grpcSrv := server.New(log, repos, reader, server.Options{Reflection: cfg.Dev})
 	httpSrv, err := smarthttp.New(smarthttp.Options{

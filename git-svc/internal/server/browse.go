@@ -154,10 +154,10 @@ func (s *commitServer) GetRawBlob(req *gitv1.GetRawBlobRequest, stream grpc.Serv
 	// messages of rawChunk bytes.
 	w := bufio.NewWriterSize(&rawSender{stream: stream}, rawChunk)
 	if err := s.reader.WriteRaw(ctx, f, w); err != nil {
-		return toStatus(ctx, s.log, err)
+		return toStatus(ctx, s.log, streamError(ctx, err))
 	}
 	if err := w.Flush(); err != nil {
-		return toStatus(ctx, s.log, err)
+		return toStatus(ctx, s.log, streamError(ctx, err))
 	}
 	return nil
 }
@@ -193,10 +193,10 @@ func (s *commitServer) GetArchive(req *gitv1.GetArchiveRequest, stream grpc.Serv
 	// archiveChunk bytes.
 	w := bufio.NewWriterSize(&archiveSender{stream: stream}, archiveChunk)
 	if err := s.reader.WriteArchive(ctx, a, w); err != nil {
-		return toStatus(ctx, s.log, err)
+		return toStatus(ctx, s.log, streamError(ctx, err))
 	}
 	if err := w.Flush(); err != nil {
-		return toStatus(ctx, s.log, err)
+		return toStatus(ctx, s.log, streamError(ctx, err))
 	}
 	return nil
 }

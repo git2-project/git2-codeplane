@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -63,5 +65,46 @@ func TestToStatus(t *testing.T) {
 				t.Errorf("log = %q, want it to contain %q", logs.String(), tt.wantLog)
 			}
 		})
+	}
+}
+
+func TestStreamError(t *testing.T) {
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	// What Send returns, wrapped by a writer, after the client canceled.
+	sendFailed := fmt.Errorf("archive commit: %w", status.Error(codes.Canceled, "context canceled"))
+
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		err      error
+		wantCode codes.Code
+		wantLog  bool
+	}{
+		{"client canceled", canceled, sendFailed, codes.Canceled, false},
+		{"deadline passed", expired, errors.New("git: signal: killed"), codes.DeadlineExceeded, false},
+		{"call still running", t.Context(), errors.New("boom"), codes.Internal, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			log := slog.New(slog.NewJSONHandler(&logs, nil))
+
+			got := status.Code(toStatus(tt.ctx, log, streamError(tt.ctx, tt.err)))
+
+			if got != tt.wantCode {
+				t.Errorf("code = %v, want %v", got, tt.wantCode)
+			}
+			if logged := logs.Len() > 0; logged != tt.wantLog {
+				t.Errorf("logged = %v, want %v: %s", logged, tt.wantLog, logs.String())
+			}
+		})
+	}
+
+	// RestoreBundle reads until io.EOF, which must stay io.EOF.
+	if err := streamError(canceled, io.EOF); !errors.Is(err, io.EOF) {
+		t.Errorf("streamError(canceled, io.EOF) = %v, want io.EOF", err)
 	}
 }

@@ -7,22 +7,29 @@ import (
 	"github.com/google/uuid"
 )
 
-// Page size rules from the API contract (Google AIP-158).
+// Page size rules from the API contract (Google AIP-158). ListAll, which
+// only backups call, has larger pages (bundle.proto).
 const (
-	defaultPageSize = 50
-	maxPageSize     = 100
+	defaultPageSize    = 50
+	maxPageSize        = 100
+	defaultAllPageSize = 100
+	maxAllPageSize     = 1000
 )
 
 // PageSize applies the page size rules: 0 means the default, values above
 // the maximum are lowered to it, negative values are rejected.
 func PageSize(n int32) (int, error) {
+	return pageSize(n, defaultPageSize, maxPageSize)
+}
+
+func pageSize(n int32, def, maxSize int) (int, error) {
 	switch {
 	case n < 0:
 		return 0, invalid("page_size", "must not be negative")
 	case n == 0:
-		return defaultPageSize, nil
-	case n > maxPageSize:
-		return maxPageSize, nil
+		return def, nil
+	case int(n) > maxSize:
+		return maxSize, nil
 	}
 	return int(n), nil
 }
@@ -56,6 +63,22 @@ func DecodePageToken(token string, c any) error {
 		return err
 	}
 	return json.Unmarshal(b, c)
+}
+
+// allCursor is the position after the last repository of a ListAll page,
+// which is sorted by ID.
+type allCursor struct {
+	All bool      `json:"a"` // always true: tells it from a List token
+	ID  uuid.UUID `json:"i"`
+}
+
+// decodeAllPageToken decodes a token of ListAll.
+func decodeAllPageToken(token string) (allCursor, error) {
+	var c allCursor
+	if err := DecodePageToken(token, &c); err != nil || !c.All {
+		return allCursor{}, invalid("page_token", "is invalid")
+	}
+	return c, nil
 }
 
 // decodePageToken decodes a token of List and checks that it was issued for

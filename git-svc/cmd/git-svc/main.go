@@ -23,10 +23,15 @@ import (
 	"syscall"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	eventsv1 "github.com/git2-project/git2-codeplane/gen/go/events/v1"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/config"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/db"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/gitcmd"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/relay"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/server"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/smarthttp"
@@ -85,6 +90,16 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	}
 	log.Info("git found", slog.String("path", git.Path()), slog.String("version", version.String()))
 
+	store := storage.NewStore(layout, git)
+	// Nothing is served yet, so no restore is running (ADR 0015). Leftovers
+	// only take disk space, so failing to remove them does not stop git-svc.
+	switch n, err := store.RemoveRestoreLeftovers(); {
+	case err != nil:
+		log.Warn("remove unfinished restores", slog.String("err", err.Error()))
+	case n > 0:
+		log.Info("removed unfinished restores", slog.Int("count", n))
+	}
+
 	pool, err := db.Open(ctx, cfg.PostgresDSN, cfg.PostgresMaxConns)
 	if err != nil {
 		return err
@@ -95,7 +110,7 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	}
 	log.Info("database ready")
 
-	repos := repo.NewService(pool, storage.NewStore(layout, git), log)
+	repos := repo.NewService(pool, store, log)
 	reader := browse.NewService(repos, layout, git)
 	grpcSrv := server.New(log, repos, reader, server.Options{Reflection: cfg.Dev})
 	httpSrv, err := smarthttp.New(smarthttp.Options{
@@ -109,6 +124,12 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+
+	stopRelay, err := startRelay(ctx, log, cfg.EventSinks, relay.NewPGStore(pool))
+	if err != nil {
+		return err
+	}
+	defer stopRelay()
 
 	listen := (&net.ListenConfig{}).Listen
 	grpcLis, err := listen(ctx, "tcp", cfg.GRPCAddr)
@@ -127,6 +148,59 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	return serveUntilDone(ctx, log,
 		listener{name: "gRPC", srv: grpcSrv, lis: grpcLis},
 		listener{name: "HTTP", srv: httpSrv, lis: httpLis})
+}
+
+// startRelay starts the event relay when sinks are configured (ADR 0014).
+// The returned stop function cancels it, waits until it has marked what it
+// delivered, and closes its connections; serve calls it before the
+// database pool closes. Without sinks the relay does not run and events
+// wait in the outbox.
+func startRelay(ctx context.Context, log *slog.Logger, sinks []config.EventSink, store relay.Store) (stop func(), err error) {
+	if len(sinks) == 0 {
+		log.Info("event relay off: no subscribers configured; events wait in the outbox",
+			slog.String("variable", config.EnvEventSinks))
+		return func() {}, nil
+	}
+
+	var conns []*grpc.ClientConn
+	closeAll := func() {
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	}
+	subs := make([]relay.Subscriber, 0, len(sinks))
+	names := make([]string, 0, len(sinks))
+	for _, s := range sinks {
+		// Plain gRPC: subscribers are reachable only on the instance
+		// network, like git-svc itself. NewClient connects on first use.
+		conn, err := grpc.NewClient(s.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			closeAll()
+			return nil, fmt.Errorf("event subscriber %s: %w", s.Addr, err)
+		}
+		conns = append(conns, conn)
+		subs = append(subs, relay.Subscriber{Name: s.Addr, Types: s.Types, Client: eventsv1.NewEventSinkClient(conn)})
+		names = append(names, s.Addr)
+	}
+	r, err := relay.New(relay.Options{Store: store, Subscribers: subs, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, err
+	}
+
+	relayCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.Run(relayCtx)
+	}()
+	log.Info("event relay started", slog.Any("subscribers", names))
+	return func() {
+		cancel()
+		<-done
+		closeAll()
+		log.Info("event relay stopped")
+	}, nil
 }
 
 // servable is what serveUntilDone runs: server.Server and smarthttp.Server.

@@ -471,6 +471,7 @@ type testEnv struct {
 	client  gitv1.RepositoryServiceClient
 	refs    gitv1.RefServiceClient
 	commits gitv1.CommitServiceClient
+	bundles gitv1.BundleServiceClient
 	pool    *pgxpool.Pool
 	layout  *storage.Layout
 }
@@ -523,6 +524,7 @@ func newTestEnv(t *testing.T, mode testdb.Mode) *testEnv {
 		client:  gitv1.NewRepositoryServiceClient(conn),
 		refs:    gitv1.NewRefServiceClient(conn),
 		commits: gitv1.NewCommitServiceClient(conn),
+		bundles: gitv1.NewBundleServiceClient(conn),
 		pool:    pool,
 		layout:  layout,
 	}

@@ -13,7 +13,8 @@ import (
 	"github.com/git2-project/git2-codeplane/git-svc/internal/gitcmd"
 )
 
-// Store creates, trashes and removes bare repositories on disk.
+// Store creates, trashes and removes bare repositories on disk, and copies
+// them out and back in as Git bundles.
 type Store struct {
 	layout *Layout
 	git    *gitcmd.Runner
@@ -98,12 +99,13 @@ func (s *Store) Trash(id uuid.UUID) error {
 	return nil
 }
 
-// mustNotExist returns an error if path exists or cannot be checked.
+// mustNotExist returns an error if path exists, matching ErrExists, or if it
+// cannot be checked.
 func mustNotExist(path string) error {
 	_, err := os.Lstat(path)
 	switch {
 	case err == nil:
-		return fmt.Errorf("%s already exists", path)
+		return fmt.Errorf("%s %w", path, ErrExists)
 	case !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("check %s: %w", path, err)
 	}

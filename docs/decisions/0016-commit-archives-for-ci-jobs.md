@@ -26,7 +26,7 @@ Issue #13 asks for that RPC. Runner #19 and the M3 demo (11 Dec) wait for it.
   - `export-subst` rewrites `$Format:…$` placeholders;
   - `text` and `eol` attributes change line endings.
 
-  Release tarballs want that, but a CI checkout does not: projects often mark `tests/` as export-ignore, and their tests would silently be missing. With `--worktree-attributes`, git reads attributes from the working tree instead, and a bare repository has none. git-svc writes no `info/attributes` and no global attributes file either. So the archive holds the files exactly as committed.
+  Release tarballs want that, but a CI checkout does not: projects often mark `tests/` as export-ignore, and their tests would silently be missing. With `--worktree-attributes`, git reads attributes from the working tree instead, and a bare repository has none. git-svc writes no `info/attributes` and no global attributes file either, and git reads no system one (`GIT_ATTR_NOSYSTEM=1` on every git call), so the base image cannot add any. The archive holds the files exactly as committed.
 - **`-c tar.umask=022`.** git's default umask (002) makes files group-writable. 022 gives the modes of a usual checkout: 0644, and 0755 for executables and directories.
 
 Everything else is git archive's own format:

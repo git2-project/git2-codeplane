@@ -43,9 +43,10 @@ func (s *Service) OpenArchive(ctx context.Context, id uuid.UUID, ref string) (Ar
 // export-ignore leaves files out, and export-subst and line-ending
 // attributes change content. With --worktree-attributes it reads them from
 // the working tree instead, which a bare repository does not have. git-svc
-// writes no info/attributes and no global attributes file either, so
-// nothing is applied. tar.umask=022 gives the modes of a usual checkout:
-// 0644, and 0755 for executables and directories.
+// writes no info/attributes and no global attributes file either, and git
+// reads no system one (gitcmd sets GIT_ATTR_NOSYSTEM), so nothing is
+// applied. tar.umask=022 gives the modes of a usual checkout: 0644, and
+// 0755 for executables and directories.
 func (s *Service) WriteArchive(ctx context.Context, a Archive, w io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, streamTimeout)
 	defer cancel()

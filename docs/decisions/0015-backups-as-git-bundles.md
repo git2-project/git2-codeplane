@@ -1,6 +1,6 @@
 # 0015. Backups: repositories as Git bundles (BundleService)
 
-- Status: Proposed; Deploy (Ceyda) reviews the contract with this change
+- Status: Accepted; Ceyda (Deploy) approved the contract on 2026-11-17, with the two open items at the end
 - Date: 2026-11-09
 
 ## Context
@@ -34,6 +34,7 @@ It is named `BundleService`, not `BackupService`, because `backup.v1.BackupServi
   - git-svc never runs gc (ADR 0012).
   - So a bundle never misses an object: it is the repository as it was when the bundle started.
 - The size is not known before the stream ends. git-svc does not write a temporary file to find it out.
+- **A repository deleted during the call** answers `NOT_FOUND`, as one deleted before it does. A delete commits, then moves the files to the trash, so git can find the directory gone just after git-svc saw the row live. git-svc then looks in the trash: files found there mean a delete; files missing from both places are a fault (`INTERNAL`).
 
 **Empty repositories.** Git refuses to bundle a repository without refs ("Refusing to create empty bundle"), and still writes 17 bytes of header.
 - git-svc checks for refs first. An empty repository answers with one message, `empty = true`, and no data.
@@ -78,9 +79,17 @@ One rule covers both directions: zero bytes means an empty repository.
   - A repository **created** in between is bundled but has no row. `RestoreBundle` answers `NOT_FOUND`, and the restore skips it. No orphan directory is created, so the sweeper the snapshot format mentions is not needed for this case.
   - A repository **deleted** in between has a live row but no bundle. After the bundles, `git2ctl restore` can call `ListAllRepositories` and send `RestoreBundle` with no data for each repository: those already restored answer `ALREADY_EXISTS`, and the missing ones come back empty. Deploy decides whether to do this.
 - **Disk.** A restore needs free space under the storage root for the bundle and the repository at the same time, about twice the repository's size.
-- **`tmp/`** now also holds restores in progress (`tmp/<id>.restore-*`), next to creates (ADR 0005). A crash can leave one behind, like a create (`TODO(sweeper)`).
+- **`tmp/`** now also holds restores in progress (`tmp/<id>.restore-*`), next to creates (ADR 0005). A crash can leave one behind, with a whole bundle in it. git-svc removes them at startup, before it serves: one git-svc serves a storage root (ADR 0005), so no restore can be running then.
 - **Not done:**
   - bundles of deleted repositories in `trash/`;
   - incremental bundles;
-  - a size limit;
   - a checksum in the stream, since the snapshot's manifest keeps a sha256 per file.
+
+## Open
+
+Both were raised in Deploy's review of git2-codeplane #17, and each has a follow-up issue.
+
+- **A size limit for restores.** `RestoreBundle` copies the whole stream into `tmp/` with no byte limit and no deadline of its own. A caller that never stops could fill the storage root, which also holds the live repositories. The plan is a variable such as `GIT2_GITSVC_MAX_RESTORE_SIZE`, answered with `RESOURCE_EXHAUSTED`. It also gives Deploy a number to size the volume against: a restore needs about twice the largest repository free.
+- **A port of its own.** BundleService shares `:9090` with RepositoryService, which the gateway and dash-api call, so the network cannot keep them away from it.
+  - The risk today is small. `RestoreBundle` writes only a live repository that has no files, and never replaces files. `CreateBundle` reads nothing that `CommitService` does not. The real risk is a full disk, the item above.
+  - The plan is a variable such as `GIT2_GITSVC_BACKUP_ADDR`: a listener for BundleService alone, which Deploy opens only to backup-svc and `git2ctl restore`. With it set, `:9090` no longer serves BundleService.

@@ -21,26 +21,40 @@ func logUnary(log *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		resp, err := handler(ctx, req)
-
-		code := status.Code(err)
-		level := slog.LevelInfo
-		switch {
-		case isServerFault(code):
-			level = slog.LevelError
-		case strings.HasPrefix(info.FullMethod, "/grpc.health."):
-			level = slog.LevelDebug
-		}
-		attrs := []slog.Attr{
-			slog.String("method", info.FullMethod),
-			slog.String("code", code.String()),
-			slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),
-		}
-		if err != nil {
-			attrs = append(attrs, slog.String("err", err.Error()))
-		}
-		log.LogAttrs(ctx, level, "rpc", attrs...)
+		logRPC(ctx, log, info.FullMethod, start, err)
 		return resp, err
 	}
+}
+
+// logStream is logUnary for streaming RPCs: one line when the stream ends.
+func logStream(log *slog.Logger) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		start := time.Now()
+		err := handler(srv, ss)
+		logRPC(ss.Context(), log, info.FullMethod, start, err)
+		return err
+	}
+}
+
+// logRPC writes the log line of one finished RPC.
+func logRPC(ctx context.Context, log *slog.Logger, method string, start time.Time, err error) {
+	code := status.Code(err)
+	level := slog.LevelInfo
+	switch {
+	case isServerFault(code):
+		level = slog.LevelError
+	case strings.HasPrefix(method, "/grpc.health."):
+		level = slog.LevelDebug
+	}
+	attrs := []slog.Attr{
+		slog.String("method", method),
+		slog.String("code", code.String()),
+		slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),
+	}
+	if err != nil {
+		attrs = append(attrs, slog.String("err", err.Error()))
+	}
+	log.LogAttrs(ctx, level, "rpc", attrs...)
 }
 
 // recoverUnary turns a panicking handler into an Internal error, so one bad

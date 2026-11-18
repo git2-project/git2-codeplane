@@ -1,5 +1,6 @@
 // Package repo implements repository management: input validation, the
-// create, get, find, list and delete flows, and the events of pushes.
+// create, get, find, list and delete flows, the events of pushes, and
+// copying repositories out and back in as Git bundles for backups.
 //
 // Metadata lives in PostgreSQL (git_svc.repositories), the repositories
 // themselves on disk (package storage), and every change records an event
@@ -91,6 +92,21 @@ WHERE owner_id = $1 AND deleted_at IS NULL
   AND (lower(name) COLLATE "C", id) > ($2::text, $3::uuid)
 ORDER BY lower(name) COLLATE "C", id
 LIMIT $4`
+
+	// The primary key's index serves both.
+	listAllFirstSQL = `
+SELECT ` + columns + `
+FROM git_svc.repositories
+WHERE deleted_at IS NULL
+ORDER BY id
+LIMIT $1`
+
+	listAllAfterSQL = `
+SELECT ` + columns + `
+FROM git_svc.repositories
+WHERE deleted_at IS NULL AND id > $1
+ORDER BY id
+LIMIT $2`
 
 	deleteSQL = `
 UPDATE git_svc.repositories
@@ -220,9 +236,7 @@ func (s *Service) List(ctx context.Context, p ListParams) (Page, error) {
 	if err != nil {
 		return Page{}, fmt.Errorf("list repositories: %w", err)
 	}
-	repos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Repository, error) {
-		return scanRepository(row)
-	})
+	repos, err := collectRepositories(rows)
 	if err != nil {
 		return Page{}, fmt.Errorf("list repositories: %w", err)
 	}
@@ -233,6 +247,46 @@ func (s *Service) List(ctx context.Context, p ListParams) (Page, error) {
 		last := page.Repositories[size-1]
 		// Names are ASCII, so strings.ToLower matches PostgreSQL's lower().
 		page.NextPageToken = EncodePageToken(cursor{OwnerID: p.OwnerID, NameKey: strings.ToLower(last.Name), ID: last.ID})
+	}
+	return page, nil
+}
+
+// ListAllParams is the input of ListAll.
+type ListAllParams struct {
+	PageSize  int32  // 0 means the default page size of ListAll
+	PageToken string // empty for the first page
+}
+
+// ListAll returns one page of the live repositories of every owner, sorted
+// by ID. Backups use it to find what to bundle.
+func (s *Service) ListAll(ctx context.Context, p ListAllParams) (Page, error) {
+	size, err := pageSize(p.PageSize, defaultAllPageSize, maxAllPageSize)
+	if err != nil {
+		return Page{}, err
+	}
+
+	var rows pgx.Rows
+	if p.PageToken == "" {
+		rows, err = s.pool.Query(ctx, listAllFirstSQL, size+1)
+	} else {
+		c, decodeErr := decodeAllPageToken(p.PageToken)
+		if decodeErr != nil {
+			return Page{}, decodeErr
+		}
+		rows, err = s.pool.Query(ctx, listAllAfterSQL, c.ID, size+1)
+	}
+	if err != nil {
+		return Page{}, fmt.Errorf("list all repositories: %w", err)
+	}
+	repos, err := collectRepositories(rows)
+	if err != nil {
+		return Page{}, fmt.Errorf("list all repositories: %w", err)
+	}
+
+	page := Page{Repositories: repos}
+	if len(repos) > size {
+		page.Repositories = repos[:size]
+		page.NextPageToken = EncodePageToken(allCursor{All: true, ID: page.Repositories[size-1].ID})
 	}
 	return page, nil
 }
@@ -275,6 +329,13 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 			slog.String("repository_id", id.String()), slog.String("err", err.Error()))
 	}
 	return nil
+}
+
+// collectRepositories reads every row of rows and closes them.
+func collectRepositories(rows pgx.Rows) ([]Repository, error) {
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Repository, error) {
+		return scanRepository(row)
+	})
 }
 
 // scanRepository reads one row in the order of columns.

@@ -5,6 +5,9 @@
 //     transaction as the change it describes, so an event exists if and
 //     only if the change was committed. RepositoryPushed is the exception:
 //     see its comment.
+//   - git-svc's relay delivers each event to the services that subscribed
+//     to its type, by calling events.v1.EventSink.Deliver
+//     (proto/events/v1/event_sink.proto, ADR 0014).
 //   - Events are delivered at least once. A consumer can see the same event
 //     more than once and must handle it idempotently, using the event ID
 //     carried next to the payload.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/tar"
 	"bytes"
 	"errors"
 	"io"
@@ -29,6 +30,15 @@ func TestBrowseOverGRPC(t *testing.T) {
 		if err != nil || !tree.GetEmpty() || tree.GetRef() != "main" {
 			t.Fatalf("GetTree(empty) = %v, %v; want empty on main", tree, err)
 		}
+		// But there is no commit to archive.
+		archiveErr := func(req *gitv1.GetArchiveRequest) error {
+			stream, err := env.commits.GetArchive(t.Context(), req)
+			if err == nil {
+				_, err = stream.Recv()
+			}
+			return err
+		}
+		wantCode(t, "GetArchive(empty)", archiveErr(&gitv1.GetArchiveRequest{RepositoryId: id}), codes.NotFound)
 
 		// Push one commit with a small and a large file.
 		git := newGitClient(t)
@@ -101,6 +111,50 @@ func TestBrowseOverGRPC(t *testing.T) {
 			t.Errorf("GetRawBlob() = %d bytes in %d messages, want the %d-byte file", len(raw), messages, len(large))
 		}
 
+		archive, err := env.commits.GetArchive(t.Context(), &gitv1.GetArchiveRequest{RepositoryId: id, Ref: "main"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, err := archive.Recv()
+		if err != nil || first.GetCommitSha() != sha || len(first.GetData()) != 0 {
+			t.Fatalf("first GetArchive message = %v, %v; want commit %s without data", first, err, sha)
+		}
+		var tarball []byte
+		messages = 0
+		for {
+			msg, err := archive.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n := len(msg.GetData()); n == 0 || n > archiveChunk || msg.GetCommitSha() != "" {
+				t.Errorf("message of %d bytes with commit %q, want 1 to %d bytes only", n, msg.GetCommitSha(), archiveChunk)
+			}
+			tarball = append(tarball, msg.GetData()...)
+			messages++
+		}
+		files := map[string][]byte{}
+		tr := tar.NewReader(bytes.NewReader(tarball))
+		for {
+			hdr, err := tr.Next()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("read archive: %v", err)
+			}
+			if hdr.Typeflag == tar.TypeReg {
+				if files[hdr.Name], err = io.ReadAll(tr); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if len(files) != 2 || string(files["README.md"]) != "hello\n" || !bytes.Equal(files["docs/large.txt"], large) || messages < 2 {
+			t.Errorf("GetArchive() = %d files in %d messages, want README.md and docs/large.txt in several", len(files), messages)
+		}
+
 		commits, err := env.commits.ListCommits(t.Context(), &gitv1.ListCommitsRequest{RepositoryId: id, Path: "docs"})
 		if err != nil || len(commits.GetCommits()) != 1 || commits.GetCommits()[0].GetMessage() != "first\n\nbody" {
 			t.Errorf("ListCommits(docs) = %v, %v", commits, err)
@@ -135,6 +189,9 @@ func TestBrowseOverGRPC(t *testing.T) {
 		wantCode(t, "GetCommit(unknown)", err, codes.NotFound)
 		_, err = env.refs.ListTags(t.Context(), &gitv1.ListTagsRequest{RepositoryId: "nope"})
 		wantCode(t, "ListTags(bad id)", err, codes.InvalidArgument)
+		wantCode(t, "GetArchive(unknown ref)", archiveErr(&gitv1.GetArchiveRequest{RepositoryId: id, Ref: "nope"}), codes.NotFound)
+		wantCode(t, "GetArchive(bad ref)", archiveErr(&gitv1.GetArchiveRequest{RepositoryId: id, Ref: "HEAD~1"}), codes.InvalidArgument)
+		wantCode(t, "GetArchive(bad id)", archiveErr(&gitv1.GetArchiveRequest{RepositoryId: "nope"}), codes.InvalidArgument)
 
 		// A deleted repository is not served, even though its files remain
 		// in the trash.
@@ -148,5 +205,6 @@ func TestBrowseOverGRPC(t *testing.T) {
 			_, err = raws.Recv()
 		}
 		wantCode(t, "GetRawBlob(deleted repository)", err, codes.NotFound)
+		wantCode(t, "GetArchive(deleted repository)", archiveErr(&gitv1.GetArchiveRequest{RepositoryId: id}), codes.NotFound)
 	})
 }

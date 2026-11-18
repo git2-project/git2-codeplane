@@ -1,6 +1,6 @@
 // Reading a repository's content: directories, files and commits. Dash's
-// code browser and ci-svc (reading .git2-ci.yml) use it. Conventions are
-// those of repository.proto.
+// code browser and ci-svc (reading .git2-ci.yml, checking out a commit for
+// a job) use it. Conventions are those of repository.proto.
 //
 // Rules shared by every RPC here:
 //   - ref names what to read: a branch ("main"), a tag ("v1.0.0"), a full
@@ -60,6 +60,38 @@ service CommitService {
   //
   // Errors: as for GetBlob.
   rpc GetRawBlob(GetRawBlobRequest) returns (stream GetRawBlobResponse);
+
+  // GetArchive streams the files of the commit at a ref as a tar archive.
+  // ci-svc uses it to give a CI job the pushed commit's files.
+  //
+  // The archive holds the files exactly as committed, at its root (no
+  // directory prefix), without a .git directory:
+  //   - .gitattributes is not applied: files marked export-ignore are
+  //     included, and export-subst placeholders and line endings are left
+  //     as committed.
+  //   - Files have mode 0644; executable files and directories have 0755.
+  //     Symlinks stay symlinks. A submodule is an empty directory, and a
+  //     Git LFS file is its pointer.
+  //   - Every entry has the commit's committer time.
+  //
+  // The archive is what users pushed: an entry may be named ".." and a
+  // symlink may point anywhere. Extract it only with a tool that never
+  // writes outside the target directory, such as Docker's API for copying
+  // into a container.
+  //
+  // The first message carries the commit; every later one carries the next
+  // piece of the archive. The archive is complete only when the stream ends
+  // without an error. A tar cut between two files still reads as a whole
+  // archive, so discard what was received when the stream fails.
+  //
+  // There is no size limit: a client that has its own stops reading.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id is not a UUID, or ref breaks the
+  //     rules above.
+  //   - NOT_FOUND: the repository or the ref does not exist; a repository
+  //     without commits has no ref.
+  rpc GetArchive(GetArchiveRequest) returns (stream GetArchiveResponse);
 
   // ListCommits returns one page of the commits reachable from a ref,
   // newest first (git log order), optionally only those that changed a
@@ -280,6 +312,26 @@ message GetRawBlobResponse {
   // The next piece of the file, at most 64 KiB. May be empty in the first
   // message, and is empty in all messages for an empty file.
   bytes data = 3;
+}
+
+// GetArchiveRequest is the input of GetArchive.
+message GetArchiveRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // What to archive; see the file comment. Empty means the default branch.
+  // ci-svc sends the full SHA of the pushed commit.
+  string ref = 2;
+}
+
+// GetArchiveResponse is one message of GetArchive's stream.
+message GetArchiveResponse {
+  // Full SHA of the archived commit. Set in the first message only.
+  string commit_sha = 1;
+
+  // The next piece of the tar archive, at most 64 KiB. Empty in the first
+  // message.
+  bytes data = 2;
 }
 
 // ListCommitsRequest is the input of ListCommits.

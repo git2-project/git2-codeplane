@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 
 	"google.golang.org/grpc"
@@ -46,4 +47,15 @@ func toStatus(ctx context.Context, log *slog.Logger, err error) error {
 	method, _ := grpc.Method(ctx)
 	log.ErrorContext(ctx, "request failed", slog.String("method", method), slog.String("err", err.Error()))
 	return errInternal
+}
+
+// streamError returns the context's error if a stream failed because the
+// call ended, so that toStatus reports it as such instead of INTERNAL. When
+// a client cancels, Send and Recv return a gRPC status error that toStatus
+// does not know, while the stream's context holds the reason.
+func streamError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(err, io.EOF) {
+		return ctxErr
+	}
+	return err
 }

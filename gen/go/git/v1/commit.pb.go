@@ -1,6 +1,6 @@
 // Reading a repository's content: directories, files and commits. Dash's
-// code browser and ci-svc (reading .git2-ci.yml) use it. Conventions are
-// those of repository.proto.
+// code browser and ci-svc (reading .git2-ci.yml, checking out a commit for
+// a job) use it. Conventions are those of repository.proto.
 //
 // Rules shared by every RPC here:
 //   - ref names what to read: a branch ("main"), a tag ("v1.0.0"), a full
@@ -930,6 +930,118 @@ func (x *GetRawBlobResponse) GetData() []byte {
 	return nil
 }
 
+// GetArchiveRequest is the input of GetArchive.
+type GetArchiveRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ID of the repository. Required.
+	RepositoryId string `protobuf:"bytes,1,opt,name=repository_id,json=repositoryId,proto3" json:"repository_id,omitempty"`
+	// What to archive; see the file comment. Empty means the default branch.
+	// ci-svc sends the full SHA of the pushed commit.
+	Ref           string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetArchiveRequest) Reset() {
+	*x = GetArchiveRequest{}
+	mi := &file_git_v1_commit_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetArchiveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetArchiveRequest) ProtoMessage() {}
+
+func (x *GetArchiveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_git_v1_commit_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetArchiveRequest.ProtoReflect.Descriptor instead.
+func (*GetArchiveRequest) Descriptor() ([]byte, []int) {
+	return file_git_v1_commit_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetArchiveRequest) GetRepositoryId() string {
+	if x != nil {
+		return x.RepositoryId
+	}
+	return ""
+}
+
+func (x *GetArchiveRequest) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+// GetArchiveResponse is one message of GetArchive's stream.
+type GetArchiveResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Full SHA of the archived commit. Set in the first message only.
+	CommitSha string `protobuf:"bytes,1,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
+	// The next piece of the tar archive, at most 64 KiB. Empty in the first
+	// message.
+	Data          []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetArchiveResponse) Reset() {
+	*x = GetArchiveResponse{}
+	mi := &file_git_v1_commit_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetArchiveResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetArchiveResponse) ProtoMessage() {}
+
+func (x *GetArchiveResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_git_v1_commit_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetArchiveResponse.ProtoReflect.Descriptor instead.
+func (*GetArchiveResponse) Descriptor() ([]byte, []int) {
+	return file_git_v1_commit_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetArchiveResponse) GetCommitSha() string {
+	if x != nil {
+		return x.CommitSha
+	}
+	return ""
+}
+
+func (x *GetArchiveResponse) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
 // ListCommitsRequest is the input of ListCommits.
 type ListCommitsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -954,7 +1066,7 @@ type ListCommitsRequest struct {
 
 func (x *ListCommitsRequest) Reset() {
 	*x = ListCommitsRequest{}
-	mi := &file_git_v1_commit_proto_msgTypes[9]
+	mi := &file_git_v1_commit_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +1078,7 @@ func (x *ListCommitsRequest) String() string {
 func (*ListCommitsRequest) ProtoMessage() {}
 
 func (x *ListCommitsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_git_v1_commit_proto_msgTypes[9]
+	mi := &file_git_v1_commit_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +1091,7 @@ func (x *ListCommitsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCommitsRequest.ProtoReflect.Descriptor instead.
 func (*ListCommitsRequest) Descriptor() ([]byte, []int) {
-	return file_git_v1_commit_proto_rawDescGZIP(), []int{9}
+	return file_git_v1_commit_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListCommitsRequest) GetRepositoryId() string {
@@ -1030,7 +1142,7 @@ type ListCommitsResponse struct {
 
 func (x *ListCommitsResponse) Reset() {
 	*x = ListCommitsResponse{}
-	mi := &file_git_v1_commit_proto_msgTypes[10]
+	mi := &file_git_v1_commit_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1042,7 +1154,7 @@ func (x *ListCommitsResponse) String() string {
 func (*ListCommitsResponse) ProtoMessage() {}
 
 func (x *ListCommitsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_git_v1_commit_proto_msgTypes[10]
+	mi := &file_git_v1_commit_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1055,7 +1167,7 @@ func (x *ListCommitsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCommitsResponse.ProtoReflect.Descriptor instead.
 func (*ListCommitsResponse) Descriptor() ([]byte, []int) {
-	return file_git_v1_commit_proto_rawDescGZIP(), []int{10}
+	return file_git_v1_commit_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListCommitsResponse) GetCommits() []*Commit {
@@ -1086,7 +1198,7 @@ type GetCommitRequest struct {
 
 func (x *GetCommitRequest) Reset() {
 	*x = GetCommitRequest{}
-	mi := &file_git_v1_commit_proto_msgTypes[11]
+	mi := &file_git_v1_commit_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1098,7 +1210,7 @@ func (x *GetCommitRequest) String() string {
 func (*GetCommitRequest) ProtoMessage() {}
 
 func (x *GetCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_git_v1_commit_proto_msgTypes[11]
+	mi := &file_git_v1_commit_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1111,7 +1223,7 @@ func (x *GetCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCommitRequest.ProtoReflect.Descriptor instead.
 func (*GetCommitRequest) Descriptor() ([]byte, []int) {
-	return file_git_v1_commit_proto_rawDescGZIP(), []int{11}
+	return file_git_v1_commit_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetCommitRequest) GetRepositoryId() string {
@@ -1145,7 +1257,7 @@ type GetCommitResponse struct {
 
 func (x *GetCommitResponse) Reset() {
 	*x = GetCommitResponse{}
-	mi := &file_git_v1_commit_proto_msgTypes[12]
+	mi := &file_git_v1_commit_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1157,7 +1269,7 @@ func (x *GetCommitResponse) String() string {
 func (*GetCommitResponse) ProtoMessage() {}
 
 func (x *GetCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_git_v1_commit_proto_msgTypes[12]
+	mi := &file_git_v1_commit_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1170,7 +1282,7 @@ func (x *GetCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCommitResponse.ProtoReflect.Descriptor instead.
 func (*GetCommitResponse) Descriptor() ([]byte, []int) {
-	return file_git_v1_commit_proto_rawDescGZIP(), []int{12}
+	return file_git_v1_commit_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetCommitResponse) GetCommit() *Commit {
@@ -1216,7 +1328,7 @@ type DiffStats struct {
 
 func (x *DiffStats) Reset() {
 	*x = DiffStats{}
-	mi := &file_git_v1_commit_proto_msgTypes[13]
+	mi := &file_git_v1_commit_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1228,7 +1340,7 @@ func (x *DiffStats) String() string {
 func (*DiffStats) ProtoMessage() {}
 
 func (x *DiffStats) ProtoReflect() protoreflect.Message {
-	mi := &file_git_v1_commit_proto_msgTypes[13]
+	mi := &file_git_v1_commit_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1241,7 +1353,7 @@ func (x *DiffStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffStats.ProtoReflect.Descriptor instead.
 func (*DiffStats) Descriptor() ([]byte, []int) {
-	return file_git_v1_commit_proto_rawDescGZIP(), []int{13}
+	return file_git_v1_commit_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DiffStats) GetFilesChanged() int32 {
@@ -1294,7 +1406,7 @@ type FileDiff struct {
 
 func (x *FileDiff) Reset() {
 	*x = FileDiff{}
-	mi := &file_git_v1_commit_proto_msgTypes[14]
+	mi := &file_git_v1_commit_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1306,7 +1418,7 @@ func (x *FileDiff) String() string {
 func (*FileDiff) ProtoMessage() {}
 
 func (x *FileDiff) ProtoReflect() protoreflect.Message {
-	mi := &file_git_v1_commit_proto_msgTypes[14]
+	mi := &file_git_v1_commit_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1319,7 +1431,7 @@ func (x *FileDiff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileDiff.ProtoReflect.Descriptor instead.
 func (*FileDiff) Descriptor() ([]byte, []int) {
-	return file_git_v1_commit_proto_rawDescGZIP(), []int{14}
+	return file_git_v1_commit_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *FileDiff) GetStatus() FileStatus {
@@ -1443,7 +1555,14 @@ const file_git_v1_commit_proto_rawDesc = "" +
 	"\x12GetRawBlobResponse\x12\x12\n" +
 	"\x04size\x18\x01 \x01(\x03R\x04size\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
-	"\x04data\x18\x03 \x01(\fR\x04data\"\x9b\x01\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\"J\n" +
+	"\x11GetArchiveRequest\x12#\n" +
+	"\rrepository_id\x18\x01 \x01(\tR\frepositoryId\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\"G\n" +
+	"\x12GetArchiveResponse\x12\x1d\n" +
+	"\n" +
+	"commit_sha\x18\x01 \x01(\tR\tcommitSha\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"\x9b\x01\n" +
 	"\x12ListCommitsRequest\x12#\n" +
 	"\rrepository_id\x18\x01 \x01(\tR\frepositoryId\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x12\n" +
@@ -1488,12 +1607,14 @@ const file_git_v1_commit_proto_rawDesc = "" +
 	"\x14FILE_STATUS_MODIFIED\x10\x02\x12\x17\n" +
 	"\x13FILE_STATUS_DELETED\x10\x03\x12\x17\n" +
 	"\x13FILE_STATUS_RENAMED\x10\x04\x12\x16\n" +
-	"\x12FILE_STATUS_COPIED\x10\x052\xd8\x02\n" +
+	"\x12FILE_STATUS_COPIED\x10\x052\x9f\x03\n" +
 	"\rCommitService\x12:\n" +
 	"\aGetTree\x12\x16.git.v1.GetTreeRequest\x1a\x17.git.v1.GetTreeResponse\x12:\n" +
 	"\aGetBlob\x12\x16.git.v1.GetBlobRequest\x1a\x17.git.v1.GetBlobResponse\x12E\n" +
 	"\n" +
-	"GetRawBlob\x12\x19.git.v1.GetRawBlobRequest\x1a\x1a.git.v1.GetRawBlobResponse0\x01\x12F\n" +
+	"GetRawBlob\x12\x19.git.v1.GetRawBlobRequest\x1a\x1a.git.v1.GetRawBlobResponse0\x01\x12E\n" +
+	"\n" +
+	"GetArchive\x12\x19.git.v1.GetArchiveRequest\x1a\x1a.git.v1.GetArchiveResponse0\x01\x12F\n" +
 	"\vListCommits\x12\x1a.git.v1.ListCommitsRequest\x1a\x1b.git.v1.ListCommitsResponse\x12@\n" +
 	"\tGetCommit\x12\x18.git.v1.GetCommitRequest\x1a\x19.git.v1.GetCommitResponseB\x8e\x01\n" +
 	"\n" +
@@ -1512,7 +1633,7 @@ func file_git_v1_commit_proto_rawDescGZIP() []byte {
 }
 
 var file_git_v1_commit_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_git_v1_commit_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_git_v1_commit_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_git_v1_commit_proto_goTypes = []any{
 	(TreeEntryType)(0),            // 0: git.v1.TreeEntryType
 	(FileStatus)(0),               // 1: git.v1.FileStatus
@@ -1525,16 +1646,18 @@ var file_git_v1_commit_proto_goTypes = []any{
 	(*GetBlobResponse)(nil),       // 8: git.v1.GetBlobResponse
 	(*GetRawBlobRequest)(nil),     // 9: git.v1.GetRawBlobRequest
 	(*GetRawBlobResponse)(nil),    // 10: git.v1.GetRawBlobResponse
-	(*ListCommitsRequest)(nil),    // 11: git.v1.ListCommitsRequest
-	(*ListCommitsResponse)(nil),   // 12: git.v1.ListCommitsResponse
-	(*GetCommitRequest)(nil),      // 13: git.v1.GetCommitRequest
-	(*GetCommitResponse)(nil),     // 14: git.v1.GetCommitResponse
-	(*DiffStats)(nil),             // 15: git.v1.DiffStats
-	(*FileDiff)(nil),              // 16: git.v1.FileDiff
-	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
+	(*GetArchiveRequest)(nil),     // 11: git.v1.GetArchiveRequest
+	(*GetArchiveResponse)(nil),    // 12: git.v1.GetArchiveResponse
+	(*ListCommitsRequest)(nil),    // 13: git.v1.ListCommitsRequest
+	(*ListCommitsResponse)(nil),   // 14: git.v1.ListCommitsResponse
+	(*GetCommitRequest)(nil),      // 15: git.v1.GetCommitRequest
+	(*GetCommitResponse)(nil),     // 16: git.v1.GetCommitResponse
+	(*DiffStats)(nil),             // 17: git.v1.DiffStats
+	(*FileDiff)(nil),              // 18: git.v1.FileDiff
+	(*timestamppb.Timestamp)(nil), // 19: google.protobuf.Timestamp
 }
 var file_git_v1_commit_proto_depIdxs = []int32{
-	17, // 0: git.v1.Signature.time:type_name -> google.protobuf.Timestamp
+	19, // 0: git.v1.Signature.time:type_name -> google.protobuf.Timestamp
 	2,  // 1: git.v1.Commit.author:type_name -> git.v1.Signature
 	2,  // 2: git.v1.Commit.committer:type_name -> git.v1.Signature
 	0,  // 3: git.v1.TreeEntry.type:type_name -> git.v1.TreeEntryType
@@ -1543,21 +1666,23 @@ var file_git_v1_commit_proto_depIdxs = []int32{
 	0,  // 6: git.v1.GetBlobResponse.type:type_name -> git.v1.TreeEntryType
 	3,  // 7: git.v1.ListCommitsResponse.commits:type_name -> git.v1.Commit
 	3,  // 8: git.v1.GetCommitResponse.commit:type_name -> git.v1.Commit
-	15, // 9: git.v1.GetCommitResponse.stats:type_name -> git.v1.DiffStats
-	16, // 10: git.v1.GetCommitResponse.files:type_name -> git.v1.FileDiff
+	17, // 9: git.v1.GetCommitResponse.stats:type_name -> git.v1.DiffStats
+	18, // 10: git.v1.GetCommitResponse.files:type_name -> git.v1.FileDiff
 	1,  // 11: git.v1.FileDiff.status:type_name -> git.v1.FileStatus
 	5,  // 12: git.v1.CommitService.GetTree:input_type -> git.v1.GetTreeRequest
 	7,  // 13: git.v1.CommitService.GetBlob:input_type -> git.v1.GetBlobRequest
 	9,  // 14: git.v1.CommitService.GetRawBlob:input_type -> git.v1.GetRawBlobRequest
-	11, // 15: git.v1.CommitService.ListCommits:input_type -> git.v1.ListCommitsRequest
-	13, // 16: git.v1.CommitService.GetCommit:input_type -> git.v1.GetCommitRequest
-	6,  // 17: git.v1.CommitService.GetTree:output_type -> git.v1.GetTreeResponse
-	8,  // 18: git.v1.CommitService.GetBlob:output_type -> git.v1.GetBlobResponse
-	10, // 19: git.v1.CommitService.GetRawBlob:output_type -> git.v1.GetRawBlobResponse
-	12, // 20: git.v1.CommitService.ListCommits:output_type -> git.v1.ListCommitsResponse
-	14, // 21: git.v1.CommitService.GetCommit:output_type -> git.v1.GetCommitResponse
-	17, // [17:22] is the sub-list for method output_type
-	12, // [12:17] is the sub-list for method input_type
+	11, // 15: git.v1.CommitService.GetArchive:input_type -> git.v1.GetArchiveRequest
+	13, // 16: git.v1.CommitService.ListCommits:input_type -> git.v1.ListCommitsRequest
+	15, // 17: git.v1.CommitService.GetCommit:input_type -> git.v1.GetCommitRequest
+	6,  // 18: git.v1.CommitService.GetTree:output_type -> git.v1.GetTreeResponse
+	8,  // 19: git.v1.CommitService.GetBlob:output_type -> git.v1.GetBlobResponse
+	10, // 20: git.v1.CommitService.GetRawBlob:output_type -> git.v1.GetRawBlobResponse
+	12, // 21: git.v1.CommitService.GetArchive:output_type -> git.v1.GetArchiveResponse
+	14, // 22: git.v1.CommitService.ListCommits:output_type -> git.v1.ListCommitsResponse
+	16, // 23: git.v1.CommitService.GetCommit:output_type -> git.v1.GetCommitResponse
+	18, // [18:24] is the sub-list for method output_type
+	12, // [12:18] is the sub-list for method input_type
 	12, // [12:12] is the sub-list for extension type_name
 	12, // [12:12] is the sub-list for extension extendee
 	0,  // [0:12] is the sub-list for field type_name
@@ -1575,7 +1700,7 @@ func file_git_v1_commit_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_git_v1_commit_proto_rawDesc), len(file_git_v1_commit_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   15,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

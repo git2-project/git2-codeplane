@@ -1,6 +1,6 @@
 // Reading a repository's content: directories, files and commits. Dash's
-// code browser and ci-svc (reading .git2-ci.yml) use it. Conventions are
-// those of repository.proto.
+// code browser and ci-svc (reading .git2-ci.yml, checking out a commit for
+// a job) use it. Conventions are those of repository.proto.
 //
 // Rules shared by every RPC here:
 //   - ref names what to read: a branch ("main"), a tag ("v1.0.0"), a full
@@ -44,6 +44,7 @@ const (
 	CommitService_GetTree_FullMethodName     = "/git.v1.CommitService/GetTree"
 	CommitService_GetBlob_FullMethodName     = "/git.v1.CommitService/GetBlob"
 	CommitService_GetRawBlob_FullMethodName  = "/git.v1.CommitService/GetRawBlob"
+	CommitService_GetArchive_FullMethodName  = "/git.v1.CommitService/GetArchive"
 	CommitService_ListCommits_FullMethodName = "/git.v1.CommitService/ListCommits"
 	CommitService_GetCommit_FullMethodName   = "/git.v1.CommitService/GetCommit"
 )
@@ -85,6 +86,37 @@ type CommitServiceClient interface {
 	//
 	// Errors: as for GetBlob.
 	GetRawBlob(ctx context.Context, in *GetRawBlobRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetRawBlobResponse], error)
+	// GetArchive streams the files of the commit at a ref as a tar archive.
+	// ci-svc uses it to give a CI job the pushed commit's files.
+	//
+	// The archive holds the files exactly as committed, at its root (no
+	// directory prefix), without a .git directory:
+	//   - .gitattributes is not applied: files marked export-ignore are
+	//     included, and export-subst placeholders and line endings are left
+	//     as committed.
+	//   - Files have mode 0644; executable files and directories have 0755.
+	//     Symlinks stay symlinks. A submodule is an empty directory, and a
+	//     Git LFS file is its pointer.
+	//   - Every entry has the commit's committer time.
+	//
+	// The archive is what users pushed: an entry may be named ".." and a
+	// symlink may point anywhere. Extract it only with a tool that never
+	// writes outside the target directory, such as Docker's API for copying
+	// into a container.
+	//
+	// The first message carries the commit; every later one carries the next
+	// piece of the archive. The archive is complete only when the stream ends
+	// without an error. A tar cut between two files still reads as a whole
+	// archive, so discard what was received when the stream fails.
+	//
+	// There is no size limit: a client that has its own stops reading.
+	//
+	// Errors:
+	//   - INVALID_ARGUMENT: repository_id is not a UUID, or ref breaks the
+	//     rules above.
+	//   - NOT_FOUND: the repository or the ref does not exist; a repository
+	//     without commits has no ref.
+	GetArchive(ctx context.Context, in *GetArchiveRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetArchiveResponse], error)
 	// ListCommits returns one page of the commits reachable from a ref,
 	// newest first (git log order), optionally only those that changed a
 	// path.
@@ -158,6 +190,25 @@ func (c *commitServiceClient) GetRawBlob(ctx context.Context, in *GetRawBlobRequ
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type CommitService_GetRawBlobClient = grpc.ServerStreamingClient[GetRawBlobResponse]
 
+func (c *commitServiceClient) GetArchive(ctx context.Context, in *GetArchiveRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetArchiveResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &CommitService_ServiceDesc.Streams[1], CommitService_GetArchive_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[GetArchiveRequest, GetArchiveResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CommitService_GetArchiveClient = grpc.ServerStreamingClient[GetArchiveResponse]
+
 func (c *commitServiceClient) ListCommits(ctx context.Context, in *ListCommitsRequest, opts ...grpc.CallOption) (*ListCommitsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListCommitsResponse)
@@ -215,6 +266,37 @@ type CommitServiceServer interface {
 	//
 	// Errors: as for GetBlob.
 	GetRawBlob(*GetRawBlobRequest, grpc.ServerStreamingServer[GetRawBlobResponse]) error
+	// GetArchive streams the files of the commit at a ref as a tar archive.
+	// ci-svc uses it to give a CI job the pushed commit's files.
+	//
+	// The archive holds the files exactly as committed, at its root (no
+	// directory prefix), without a .git directory:
+	//   - .gitattributes is not applied: files marked export-ignore are
+	//     included, and export-subst placeholders and line endings are left
+	//     as committed.
+	//   - Files have mode 0644; executable files and directories have 0755.
+	//     Symlinks stay symlinks. A submodule is an empty directory, and a
+	//     Git LFS file is its pointer.
+	//   - Every entry has the commit's committer time.
+	//
+	// The archive is what users pushed: an entry may be named ".." and a
+	// symlink may point anywhere. Extract it only with a tool that never
+	// writes outside the target directory, such as Docker's API for copying
+	// into a container.
+	//
+	// The first message carries the commit; every later one carries the next
+	// piece of the archive. The archive is complete only when the stream ends
+	// without an error. A tar cut between two files still reads as a whole
+	// archive, so discard what was received when the stream fails.
+	//
+	// There is no size limit: a client that has its own stops reading.
+	//
+	// Errors:
+	//   - INVALID_ARGUMENT: repository_id is not a UUID, or ref breaks the
+	//     rules above.
+	//   - NOT_FOUND: the repository or the ref does not exist; a repository
+	//     without commits has no ref.
+	GetArchive(*GetArchiveRequest, grpc.ServerStreamingServer[GetArchiveResponse]) error
 	// ListCommits returns one page of the commits reachable from a ref,
 	// newest first (git log order), optionally only those that changed a
 	// path.
@@ -257,6 +339,9 @@ func (UnimplementedCommitServiceServer) GetBlob(context.Context, *GetBlobRequest
 }
 func (UnimplementedCommitServiceServer) GetRawBlob(*GetRawBlobRequest, grpc.ServerStreamingServer[GetRawBlobResponse]) error {
 	return status.Error(codes.Unimplemented, "method GetRawBlob not implemented")
+}
+func (UnimplementedCommitServiceServer) GetArchive(*GetArchiveRequest, grpc.ServerStreamingServer[GetArchiveResponse]) error {
+	return status.Error(codes.Unimplemented, "method GetArchive not implemented")
 }
 func (UnimplementedCommitServiceServer) ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListCommits not implemented")
@@ -332,6 +417,17 @@ func _CommitService_GetRawBlob_Handler(srv interface{}, stream grpc.ServerStream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type CommitService_GetRawBlobServer = grpc.ServerStreamingServer[GetRawBlobResponse]
 
+func _CommitService_GetArchive_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetArchiveRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(CommitServiceServer).GetArchive(m, &grpc.GenericServerStream[GetArchiveRequest, GetArchiveResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CommitService_GetArchiveServer = grpc.ServerStreamingServer[GetArchiveResponse]
+
 func _CommitService_ListCommits_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListCommitsRequest)
 	if err := dec(in); err != nil {
@@ -396,6 +492,11 @@ var CommitService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "GetRawBlob",
 			Handler:       _CommitService_GetRawBlob_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "GetArchive",
+			Handler:       _CommitService_GetArchive_Handler,
 			ServerStreams: true,
 		},
 	},

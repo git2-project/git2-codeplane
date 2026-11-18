@@ -32,7 +32,7 @@ func TestBaseEnvDropsParentGitVars(t *testing.T) {
 
 	env := baseEnv("/svc/home")
 
-	for _, want := range []string{"HOME=/svc/home", "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"} {
+	for _, want := range []string{"HOME=/svc/home", "GIT_CONFIG_NOSYSTEM=1", "GIT_ATTR_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"} {
 		if !slices.Contains(env, want) {
 			t.Errorf("baseEnv() is missing %q: %q", want, env)
 		}

@@ -245,11 +245,14 @@ func (e *Error) Unwrap() error {
 
 // baseEnv is the complete environment for git. Nothing else is inherited
 // from the parent, so stray GIT_DIR, GIT_CONFIG_* or locale settings cannot
-// change behavior.
+// change behavior. Git reads neither the system's config file nor its
+// attributes file ($(prefix)/etc/gitattributes), so the base image cannot
+// change behavior either.
 func baseEnv(home string) []string {
 	env := []string{
 		"HOME=" + home,
 		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_ATTR_NOSYSTEM=1",
 		"GIT_TERMINAL_PROMPT=0",
 		"LC_ALL=C",
 	}

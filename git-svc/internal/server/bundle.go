@@ -118,12 +118,3 @@ func (r *bundleReceiver) Read(p []byte) (int, error) {
 	r.pending = r.pending[n:]
 	return n, nil
 }
-
-// streamError returns the context's error if a stream failed because the
-// call ended, so that toStatus reports it as such instead of INTERNAL.
-func streamError(ctx context.Context, err error) error {
-	if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(err, io.EOF) {
-		return ctxErr
-	}
-	return err
-}

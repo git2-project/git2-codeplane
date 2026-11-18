@@ -1,6 +1,6 @@
 # 0016. Commit archives for CI jobs (CommitService.GetArchive)
 
-- Status: Proposed; CI (Osman) reviews the contract with this change
+- Status: Accepted; approved by Osman (CI) on 2026-11-18 and Ceyda (Deploy) on 2026-11-17
 - Date: 2026-11-15
 
 ## Context

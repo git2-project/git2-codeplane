@@ -1,0 +1,274 @@
+// Changing a repository on a user's behalf: checking and doing the merge of
+// a merge request (FR-42, FR-43, UC-18). dash-api calls it; Dash shows the
+// result in a merge request's merge box.
+//
+// Conventions are those of repository.proto, and names and messages follow
+// commit.proto. Branch names are given without "refs/heads/" and follow
+// git's rules for branch names (git2-codeplane ADR 0009).
+//
+// A merge moves a branch like a push does, so it writes the same event: a
+// RepositoryPushed (events.proto). ci-svc starts the target branch's
+// pipeline from it, as for any push (FR-51).
+syntax = "proto3";
+
+package git.v1;
+
+// OperationService checks and merges branches of a repository.
+//
+// git-svc does not decide who may merge. Before it calls MergeBranches,
+// dash-api checks the user's role, the target branch's rules and the
+// approvals (FR-36). The push hook does not run for these merges, so the
+// branch rules that git-svc applies to pushes (WBS-7.1) do not apply to
+// them either.
+//
+// Not implemented yet: every RPC answers UNIMPLEMENTED until
+// git2-codeplane#24 is done.
+service OperationService {
+  // CheckMerge tells whether source_branch can be merged into target_branch
+  // now, and how. It changes no branch.
+  //
+  // The answer is computed on every call from the branches' current tips;
+  // nothing is stored. A merge can still fail later if a branch moves in
+  // between: MergeBranches checks again.
+  //
+  // A merge that is not possible is an answer, not an error: see status.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id is not a UUID, a branch name is
+  //     invalid, or the two branches are the same.
+  //   - NOT_FOUND: the repository or a branch does not exist.
+  rpc CheckMerge(CheckMergeRequest) returns (CheckMergeResponse);
+
+  // MergeBranches merges source_branch into target_branch with the chosen
+  // strategy, and moves target_branch to the result. The source branch is
+  // not changed or deleted.
+  //
+  // The merge runs on the repository itself, without a working tree. It
+  // never creates a commit that changes no file: when the result has the
+  // same files as the target, the answer is
+  // MERGE_ERROR_REASON_ALREADY_MERGED.
+  //
+  // Safety:
+  //   - The source must still point to expected_source_sha, the commit the
+  //     reviewers saw. Otherwise nothing is merged.
+  //   - The target may have moved since CheckMerge. The merge is then
+  //     computed against its new tip and goes ahead when it is still clean
+  //     (UC-18 E3). git-svc moves the target only from the tip it merged
+  //     with, so a push or merge that lands at the same moment is never
+  //     lost.
+  //
+  // After the target moves, git-svc writes a RepositoryPushed event with
+  // pusher_id = merger_id and one RefUpdate for the target branch. As with
+  // a push, if git-svc stops or its database fails between the two, the
+  // merge stays without an event. git-svc logs a failed write.
+  //
+  // Retrying: if a call ends without an answer (for example
+  // DEADLINE_EXCEEDED or UNAVAILABLE), it may have merged. Calling again
+  // with the same request is safe: a merge that already happened answers
+  // FAILED_PRECONDITION with MERGE_ERROR_REASON_ALREADY_MERGED.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id or merger_id is not a UUID, a
+  //     branch name is invalid, the branches are the same, strategy is
+  //     unspecified, expected_source_sha is not a full SHA, or, for a
+  //     strategy that creates a commit, message or author is missing or
+  //     invalid.
+  //   - NOT_FOUND: the repository or a branch does not exist.
+  //   - FAILED_PRECONDITION: the merge is not possible now, and nothing
+  //     changed. The status carries one MergeError detail with the reason.
+  //   - ABORTED: the target kept moving while git-svc tried to update it.
+  //     Nothing changed; the caller may try again.
+  rpc MergeBranches(MergeBranchesRequest) returns (MergeBranchesResponse);
+}
+
+// MergeStrategy is how MergeBranches combines the two branches.
+enum MergeStrategy {
+  // Not set. Rejected with INVALID_ARGUMENT.
+  MERGE_STRATEGY_UNSPECIFIED = 0;
+
+  // A new commit with two parents, the target's tip and the source's tip.
+  // Always a new commit, even when a fast-forward would be possible, as
+  // with `git merge --no-ff`.
+  MERGE_STRATEGY_MERGE_COMMIT = 1;
+
+  // A new commit with one parent, the target's tip, that holds all of the
+  // source's changes. The source's commits do not become part of the
+  // target's history.
+  MERGE_STRATEGY_SQUASH = 2;
+
+  // No new commit: the target moves to the source's tip. Possible only when
+  // the target's tip is an ancestor of the source's tip.
+  MERGE_STRATEGY_FAST_FORWARD = 3;
+}
+
+// MergeStatus is whether a merge is possible.
+enum MergeStatus {
+  // Not set. Never returned.
+  MERGE_STATUS_UNSPECIFIED = 0;
+
+  // The branches merge without conflicts.
+  MERGE_STATUS_CLEAN = 1;
+
+  // Some files changed on both branches in ways that git cannot combine.
+  // conflicts lists them.
+  MERGE_STATUS_CONFLICTS = 2;
+
+  // The target already contains every change of the source: there is
+  // nothing to merge.
+  MERGE_STATUS_ALREADY_MERGED = 3;
+
+  // The branches have no common history, so they cannot be merged.
+  MERGE_STATUS_UNRELATED = 4;
+}
+
+// ConflictFile is one file that git cannot merge by itself.
+message ConflictFile {
+  // Path of the file from the repository root.
+  string path = 1;
+}
+
+// CommitIdentity is the name and email recorded in a new commit. Both are
+// required, at most 255 bytes, and must not contain "<", ">" or a line
+// break.
+message CommitIdentity {
+  // Name, for example "Deniz Yılmaz".
+  string name = 1;
+
+  // Email, without angle brackets, for example "deniz@example.com".
+  string email = 2;
+}
+
+// CheckMergeRequest is the input of CheckMerge.
+message CheckMergeRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // Branch with the changes, without "refs/heads/". Required.
+  string source_branch = 2;
+
+  // Branch to merge into, without "refs/heads/". Required.
+  string target_branch = 3;
+}
+
+// CheckMergeResponse is the output of CheckMerge.
+message CheckMergeResponse {
+  // Full SHA of the source branch's tip. Pass it to MergeBranches as
+  // expected_source_sha.
+  string source_sha = 1;
+
+  // Full SHA of the target branch's tip.
+  string target_sha = 2;
+
+  // Full SHA of the branches' best common ancestor. Empty when status is
+  // MERGE_STATUS_UNRELATED.
+  string merge_base_sha = 3;
+
+  // Whether a merge is possible and, if not, why.
+  MergeStatus status = 4;
+
+  // True when the target's tip is an ancestor of the source's tip, so
+  // MERGE_STRATEGY_FAST_FORWARD is possible. Only with MERGE_STATUS_CLEAN.
+  bool can_fast_forward = 5;
+
+  // Files with conflicts, by path, at most 100. Only with
+  // MERGE_STATUS_CONFLICTS.
+  repeated ConflictFile conflicts = 6;
+
+  // True when more than 100 files conflict and the rest are left out.
+  bool conflicts_truncated = 7;
+}
+
+// MergeBranchesRequest is the input of MergeBranches.
+message MergeBranchesRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // Branch with the changes, without "refs/heads/". Required.
+  string source_branch = 2;
+
+  // Branch to merge into, without "refs/heads/". Required.
+  string target_branch = 3;
+
+  // How to merge. Required.
+  MergeStrategy strategy = 4;
+
+  // Full SHA that the source branch must still point to: the commit the
+  // reviewers saw, such as CheckMergeResponse.source_sha. Required.
+  string expected_source_sha = 5;
+
+  // Message of the new commit, used as given. Required for
+  // MERGE_STRATEGY_MERGE_COMMIT and MERGE_STRATEGY_SQUASH, ignored for
+  // MERGE_STRATEGY_FAST_FORWARD. The caller builds the text, for example
+  // "Merge branch 'feature' into 'main'" and a line naming the merge
+  // request.
+  string message = 6;
+
+  // Author of the new commit. Required for MERGE_STRATEGY_MERGE_COMMIT and
+  // MERGE_STRATEGY_SQUASH, ignored for MERGE_STRATEGY_FAST_FORWARD.
+  CommitIdentity author = 7;
+
+  // Committer of the new commit. Optional: the author when unset. With it,
+  // a squash can name the merge request's author as author and the merging
+  // user as committer. The commit's time is git-svc's clock for both.
+  CommitIdentity committer = 8;
+
+  // ID of the user who merges, as issued by auth-svc. Required. It becomes
+  // pusher_id of the RepositoryPushed event.
+  string merger_id = 9;
+}
+
+// MergeBranchesResponse is the output of MergeBranches.
+message MergeBranchesResponse {
+  // Full SHA the target branch pointed to before the merge.
+  string old_target_sha = 1;
+
+  // Full SHA the target branch points to now: the new merge or squash
+  // commit, or the source's tip after a fast-forward.
+  string new_target_sha = 2;
+}
+
+// MergeErrorReason is why MergeBranches did not merge.
+enum MergeErrorReason {
+  // Not set. Never sent.
+  MERGE_ERROR_REASON_UNSPECIFIED = 0;
+
+  // Some files cannot be merged automatically. MergeError.conflicts lists
+  // them.
+  MERGE_ERROR_REASON_CONFLICTS = 1;
+
+  // MERGE_STRATEGY_FAST_FORWARD was asked for, but the target has commits
+  // that the source does not have.
+  MERGE_ERROR_REASON_FAST_FORWARD_IMPOSSIBLE = 2;
+
+  // The source branch no longer points to expected_source_sha: commits
+  // arrived that the reviewers have not seen.
+  MERGE_ERROR_REASON_SOURCE_MOVED = 3;
+
+  // The target already contains every change of the source. A retry of a
+  // merge that succeeded ends here too.
+  MERGE_ERROR_REASON_ALREADY_MERGED = 4;
+
+  // The branches have no common history.
+  MERGE_ERROR_REASON_UNRELATED = 5;
+}
+
+// MergeError is the detail of a FAILED_PRECONDITION status from
+// MergeBranches: why nothing was merged. In Go, read it with
+// status.FromError(err) and then the status's Details().
+message MergeError {
+  // Why nothing was merged.
+  MergeErrorReason reason = 1;
+
+  // Full SHA the source branch points to now.
+  string source_sha = 2;
+
+  // Full SHA the target branch points to now.
+  string target_sha = 3;
+
+  // Files with conflicts, by path, at most 100. Only with
+  // MERGE_ERROR_REASON_CONFLICTS.
+  repeated ConflictFile conflicts = 4;
+
+  // True when more than 100 files conflict and the rest are left out.
+  bool conflicts_truncated = 5;
+}

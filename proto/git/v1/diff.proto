@@ -1,0 +1,97 @@
+// Comparing two refs: the commits and the changes that a merge request
+// would bring. Dash uses it for the "new merge request" preview and for a
+// merge request's commits and changes (FR-38, FR-39).
+//
+// Conventions are those of repository.proto. Refs, names, messages and
+// patches follow the rules of commit.proto, and the changes come in the
+// same form and with the same limits as in CommitService.GetCommit.
+syntax = "proto3";
+
+package git.v1;
+
+import "git/v1/commit.proto";
+
+// DiffService compares refs of a repository.
+//
+// Not implemented yet: every RPC answers UNIMPLEMENTED until
+// git2-codeplane#23 is done.
+service DiffService {
+  // CompareRefs returns what head has that base does not: the commits after
+  // their merge base, and the changes from the merge base to head. This is
+  // the "three-dot" diff of `git diff base...head`. Changes made on base
+  // after the merge base are not part of the answer, so the answer is what
+  // a merge of head into base would bring.
+  //
+  // The answer is computed on every call from the refs' current commits;
+  // nothing is stored. After a push to head, the next call includes it.
+  //
+  // The changes follow GetCommit's rules: renames are detected, at most 300
+  // files are listed, and patches are cut at 64 KiB per file and 1 MiB in
+  // total.
+  //
+  // When base already contains head (nothing to merge), the answer has
+  // ahead_by = 0 and no commits or files. That is not an error.
+  //
+  // Errors:
+  //   - INVALID_ARGUMENT: repository_id is not a UUID, or base or head is
+  //     empty or breaks the ref rules of commit.proto.
+  //   - NOT_FOUND: the repository, base or head does not exist.
+  //   - FAILED_PRECONDITION: base and head have no common history.
+  rpc CompareRefs(CompareRefsRequest) returns (CompareRefsResponse);
+}
+
+// CompareRefsRequest is the input of CompareRefs.
+message CompareRefsRequest {
+  // ID of the repository. Required.
+  string repository_id = 1;
+
+  // The ref the changes would be merged into: for a merge request, its
+  // target branch. A branch, a tag, a full ref or a full SHA, as in
+  // commit.proto. Required; unlike CommitService, empty does not mean the
+  // default branch.
+  string base = 2;
+
+  // The ref whose changes are compared: for a merge request, its source
+  // branch. Same forms as base. Required.
+  string head = 3;
+}
+
+// CompareRefsResponse is the output of CompareRefs.
+message CompareRefsResponse {
+  // Full SHA of the commit base pointed to.
+  string base_sha = 1;
+
+  // Full SHA of the commit head pointed to. Together with merge_base_sha it
+  // fixes the diff, so a merge request can anchor inline comments to it and
+  // tell later whether a line changed (FR-40).
+  string head_sha = 2;
+
+  // Full SHA of the best common ancestor of base_sha and head_sha: where the
+  // changes are measured from.
+  string merge_base_sha = 3;
+
+  // Number of commits that head has and base does not.
+  int32 ahead_by = 4;
+
+  // Number of commits that base has and head does not. Above 0, a
+  // fast-forward of base to head is not possible.
+  int32 behind_by = 5;
+
+  // The commits that head has and base does not, newest first (git log
+  // order), at most 250.
+  repeated Commit commits = 6;
+
+  // True when ahead_by is above 250 and only the newest 250 commits are in
+  // commits.
+  bool commits_truncated = 7;
+
+  // Totals over all changed files, also those left out of files.
+  DiffStats stats = 8;
+
+  // Changed files from merge_base_sha to head_sha, in git's order (by
+  // path), at most 300. Same form and limits as in GetCommitResponse.
+  repeated FileDiff files = 9;
+
+  // True when more than 300 files changed and the rest are left out.
+  bool files_truncated = 10;
+}

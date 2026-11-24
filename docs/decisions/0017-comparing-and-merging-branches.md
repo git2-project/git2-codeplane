@@ -1,6 +1,6 @@
 # 0017. Comparing and merging branches for merge requests
 
-- Status: Proposed. It becomes Accepted when Dash (Bilge) approves the contract, since this is a contract change (NFR-28).
+- Status: Accepted; approved by Bilge (Dash) on 2026-11-24 in #27
 - Date: 2026-11-24
 - Issue: #22. Implementation: #23 (compare) and #24 (merge).
 

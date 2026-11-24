@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="560" viewBox="0 0 880 560" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <title>UI-G1 New repository (mock-up in Dash's design: web/packages/ui theme.css, AppShell)</title>
+  <!-- Page: the g2-bg token -->
+  <rect width="880" height="560" fill="#f6f7f9"/>
+
+  <!-- AppShell top bar: .g2-topbar (surface, bottom border) -->
+  <rect x="0" y="0" width="880" height="48" fill="#ffffff"/>
+  <line x1="0" y1="48.5" x2="880" y2="48.5" stroke="#d5dae1"/>
+  <text x="16" y="30" font-size="15" fill="#1b1f24">git2 <tspan font-weight="700">Dash</tspan></text>
+  <text x="690" y="30" font-size="14" fill="#5b6470">deniz</text>
+  <circle cx="752" cy="25" r="8" fill="#5b6470"/>
+  <circle cx="756" cy="21" r="7" fill="#ffffff"/>
+  <rect x="776" y="11" width="90" height="28" rx="6" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="821" y="30" font-size="14" fill="#1b1f24" text-anchor="middle">Sign out</text>
+
+  <!-- Page header: .dash-page-header -->
+  <text x="40" y="88" font-size="22" font-weight="600" fill="#1b1f24">New repository</text>
+  <text x="40" y="112" font-size="14" fill="#5b6470">An empty repository that you can push to right away.</text>
+
+  <!-- Form card -->
+  <rect x="40.5" y="128.5" width="500" height="404" rx="8" fill="#ffffff" stroke="#d5dae1"/>
+
+  <!-- Owner: .g2-field + .g2-input -->
+  <text x="60" y="158" font-size="14" font-weight="500" fill="#1b1f24">Owner</text>
+  <rect x="60.5" y="166.5" width="160" height="44" rx="10" fill="#f6f7f9" stroke="#d5dae1"/>
+  <text x="74" y="194" font-size="15" fill="#1b1f24">deniz</text>
+  <text x="200" y="193" font-size="12" fill="#5b6470">▾</text>
+  <text x="228" y="195" font-size="18" fill="#5b6470">/</text>
+
+  <!-- Repository name, in the "name taken" error state -->
+  <text x="244" y="158" font-size="14" font-weight="500" fill="#1b1f24">Repository name</text>
+  <rect x="244.5" y="166.5" width="276" height="44" rx="10" fill="#f6f7f9" stroke="#9b1c1c" stroke-width="1.5"/>
+  <text x="258" y="194" font-size="15" fill="#1b1f24">Payment-Gateway</text>
+  <!-- .g2-error -->
+  <rect x="244" y="218" width="276" height="32" rx="6" fill="#fdecec"/>
+  <text x="254" y="239" font-size="13" fill="#9b1c1c">Name already taken for this owner.</text>
+  <!-- .g2-field-hint -->
+  <text x="244" y="270" font-size="13" fill="#5b6470">1–100 letters, digits, “.”, “_” or “-”;</text>
+  <text x="244" y="287" font-size="13" fill="#5b6470">no “.” or “-” first, no “.git” at the end.</text>
+
+  <!-- Description -->
+  <text x="60" y="322" font-size="14" font-weight="500" fill="#1b1f24">Description (optional)</text>
+  <rect x="60.5" y="330.5" width="460" height="44" rx="10" fill="#f6f7f9" stroke="#d5dae1"/>
+  <text x="74" y="358" font-size="15" fill="#1b1f24">Card payments for the online shop</text>
+
+  <!-- Default branch -->
+  <text x="60" y="402" font-size="14" font-weight="500" fill="#1b1f24">Default branch</text>
+  <rect x="60.5" y="410.5" width="160" height="44" rx="10" fill="#f6f7f9" stroke="#d5dae1"/>
+  <text x="74" y="438" font-size="15" fill="#1b1f24">main</text>
+  <text x="232" y="437" font-size="13" fill="#5b6470">Empty means “main”.</text>
+
+  <!-- Buttons: .g2-button.g2-primary and .g2-button -->
+  <rect x="60" y="476" width="160" height="36" rx="6" fill="#2f5bd3"/>
+  <text x="140" y="499" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle">Create repository</text>
+  <rect x="232.5" y="476.5" width="84" height="36" rx="6" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="274" y="499" font-size="14" fill="#1b1f24" text-anchor="middle">Cancel</text>
+
+  <!-- What follows: RepoLayout header + TreePage's EmptyRepository -->
+  <rect x="560.5" y="128.5" width="280" height="404" rx="8" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="576" y="152" font-size="12" font-weight="600" fill="#5b6470">AFTER “CREATE REPOSITORY”</text>
+  <text x="576" y="180" font-size="15" font-weight="600" fill="#1b1f24"><tspan fill="#5b6470" font-weight="400">deniz</tspan> / payment-gateway</text>
+  <rect x="576.5" y="192.5" width="196" height="28" rx="6" fill="#f6f7f9" stroke="#d5dae1"/>
+  <text x="584" y="211" font-size="11" fill="#1b1f24" font-family="Consolas, Menlo, monospace">https://git.example.com/…</text>
+  <rect x="778.5" y="192.5" width="46" height="28" rx="6" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="801" y="211" font-size="12" fill="#1b1f24" text-anchor="middle">Copy</text>
+  <text x="580" y="246" font-size="13" font-weight="500" fill="#1b1f24">Code</text>
+  <text x="626" y="246" font-size="13" font-weight="500" fill="#5b6470">Commits</text>
+  <line x1="576" y1="256.5" x2="824" y2="256.5" stroke="#d5dae1"/>
+  <rect x="576" y="255" width="40" height="2" fill="#2f5bd3"/>
+  <text x="700" y="286" font-size="15" font-weight="600" fill="#1b1f24" text-anchor="middle">This repository is empty</text>
+  <text x="700" y="306" font-size="12" fill="#5b6470" text-anchor="middle">Push your first commit to get started:</text>
+  <rect x="576" y="318" width="248" height="146" rx="6" fill="#f6f7f9"/>
+  <g font-size="11" fill="#1b1f24" font-family="Consolas, Menlo, monospace">
+    <text x="586" y="340">git clone https://git.example.com/…</text>
+    <text x="586" y="358">cd payment-gateway</text>
+    <text x="586" y="376">git switch -c main</text>
+    <text x="586" y="394">echo "# Hello" &gt; README.md</text>
+    <text x="586" y="412">git add README.md</text>
+    <text x="586" y="430">git commit -m "Initial commit"</text>
+    <text x="586" y="448">git push -u origin main</text>
+  </g>
+</svg>

@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="560" viewBox="0 0 880 560" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <title>UI-G2 Protected branches (mock-up in Dash's design: theme.css, AppShell, RepoLayout; the Settings tab is new)</title>
+  <!-- Page: the g2-bg token -->
+  <rect width="880" height="560" fill="#f6f7f9"/>
+
+  <!-- AppShell top bar -->
+  <rect x="0" y="0" width="880" height="48" fill="#ffffff"/>
+  <line x1="0" y1="48.5" x2="880" y2="48.5" stroke="#d5dae1"/>
+  <text x="16" y="30" font-size="15" fill="#1b1f24">git2 <tspan font-weight="700">Dash</tspan></text>
+  <text x="690" y="30" font-size="14" fill="#5b6470">selin</text>
+  <circle cx="752" cy="25" r="8" fill="#5b6470"/>
+  <circle cx="756" cy="21" r="7" fill="#ffffff"/>
+  <rect x="776" y="11" width="90" height="28" rx="6" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="821" y="30" font-size="14" fill="#1b1f24" text-anchor="middle">Sign out</text>
+
+  <!-- RepoLayout header: owner / repo, clone URL with Copy, description, tabs -->
+  <text x="40" y="88" font-size="22" font-weight="600" fill="#1b1f24"><tspan fill="#5b6470" font-weight="400">payments</tspan> / payment-gateway</text>
+  <rect x="568.5" y="66.5" width="214" height="30" rx="6" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="578" y="86" font-size="12" fill="#1b1f24" font-family="Consolas, Menlo, monospace">https://git.example.com/…</text>
+  <rect x="788.5" y="66.5" width="52" height="30" rx="6" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="814" y="86" font-size="13" fill="#1b1f24" text-anchor="middle">Copy</text>
+  <text x="40" y="118" font-size="14" fill="#5b6470">Card payments for the online shop</text>
+  <text x="54" y="150" font-size="15" font-weight="500" fill="#5b6470">Code</text>
+  <text x="118" y="150" font-size="15" font-weight="500" fill="#5b6470">Commits</text>
+  <text x="208" y="150" font-size="15" font-weight="500" fill="#1b1f24">Settings</text>
+  <line x1="40" y1="162.5" x2="840" y2="162.5" stroke="#d5dae1"/>
+  <rect x="194" y="161" width="88" height="2" fill="#2f5bd3"/>
+
+  <!-- Settings menu -->
+  <rect x="40.5" y="180.5" width="170" height="150" rx="8" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="56" y="210" font-size="14" fill="#1b1f24">General</text>
+  <rect x="48" y="222" width="155" height="30" rx="6" fill="#eaf0fd"/>
+  <text x="56" y="242" font-size="14" font-weight="600" fill="#1d3f99">Protected branches</text>
+  <text x="56" y="276" font-size="14" fill="#1b1f24">CI secrets</text>
+  <text x="56" y="310" font-size="14" fill="#9b1c1c">Danger zone</text>
+
+  <!-- Protected branches -->
+  <text x="230" y="198" font-size="18" font-weight="600" fill="#1b1f24">Protected branches</text>
+  <text x="230" y="220" font-size="13" fill="#5b6470">Rules for direct pushes and merges. Force-push and deletion of a protected</text>
+  <text x="230" y="237" font-size="13" fill="#5b6470">branch are always refused, for every user.</text>
+
+  <!-- .dash-list -->
+  <rect x="230.5" y="250.5" width="610" height="112" rx="8" fill="#ffffff" stroke="#d5dae1"/>
+  <g font-size="12" font-weight="500" fill="#5b6470">
+    <text x="246" y="273">Branch</text>
+    <text x="376" y="273">Allowed to push</text>
+    <text x="516" y="273">Allowed to merge</text>
+    <text x="668" y="273">Approvals</text>
+  </g>
+  <line x1="231" y1="284.5" x2="840" y2="284.5" stroke="#d5dae1"/>
+  <text x="246" y="309" font-size="13" fill="#1b1f24" font-family="Consolas, Menlo, monospace">main</text>
+  <text x="376" y="309" font-size="14" fill="#1b1f24">Nobody</text>
+  <text x="516" y="309" font-size="14" fill="#1b1f24">Maintainers</text>
+  <text x="668" y="309" font-size="14" fill="#1b1f24">1</text>
+  <rect x="726.5" y="292.5" width="44" height="26" rx="6" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="748" y="310" font-size="13" fill="#1b1f24" text-anchor="middle">Edit</text>
+  <text x="782" y="310" font-size="13" fill="#9b1c1c">Remove</text>
+  <line x1="231" y1="323.5" x2="840" y2="323.5" stroke="#d5dae1"/>
+  <text x="246" y="348" font-size="13" fill="#1b1f24" font-family="Consolas, Menlo, monospace">release/2.3</text>
+  <text x="376" y="348" font-size="14" fill="#1b1f24">Maintainers</text>
+  <text x="516" y="348" font-size="14" fill="#1b1f24">Maintainers</text>
+  <text x="668" y="348" font-size="14" fill="#1b1f24">2</text>
+  <rect x="726.5" y="331.5" width="44" height="26" rx="6" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="748" y="349" font-size="13" fill="#1b1f24" text-anchor="middle">Edit</text>
+  <text x="782" y="349" font-size="13" fill="#9b1c1c">Remove</text>
+
+  <!-- Protect a branch -->
+  <text x="230" y="392" font-size="15" font-weight="600" fill="#1b1f24">Protect a branch</text>
+  <g font-size="13" font-weight="500" fill="#1b1f24">
+    <text x="230" y="414">Branch</text>
+    <text x="372" y="414">Allowed to push</text>
+    <text x="514" y="414">Allowed to merge</text>
+    <text x="666" y="414">Approvals</text>
+  </g>
+  <rect x="230.5" y="420.5" width="130" height="40" rx="10" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="242" y="445" font-size="13" fill="#1b1f24" font-family="Consolas, Menlo, monospace">develop</text>
+  <text x="344" y="445" font-size="12" fill="#5b6470">▾</text>
+  <rect x="372.5" y="420.5" width="130" height="40" rx="10" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="384" y="445" font-size="14" fill="#1b1f24">Writers</text>
+  <text x="486" y="445" font-size="12" fill="#5b6470">▾</text>
+  <rect x="514.5" y="420.5" width="140" height="40" rx="10" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="526" y="445" font-size="14" fill="#1b1f24">Maintainers</text>
+  <text x="638" y="445" font-size="12" fill="#5b6470">▾</text>
+  <rect x="666.5" y="420.5" width="70" height="40" rx="10" fill="#ffffff" stroke="#d5dae1"/>
+  <text x="680" y="445" font-size="14" fill="#1b1f24">1</text>
+  <rect x="748" y="420" width="92" height="40" rx="6" fill="#2f5bd3"/>
+  <text x="794" y="445" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle">Protect</text>
+
+  <!-- A refused push, in the developer's own git client -->
+  <text x="230" y="490" font-size="12" font-weight="600" fill="#5b6470">A REFUSED PUSH, IN THE DEVELOPER'S GIT CLIENT</text>
+  <rect x="230" y="498" width="610" height="54" rx="6" fill="#1b1f24"/>
+  <g font-size="12" font-family="Consolas, Menlo, monospace">
+    <text x="244" y="518" fill="#ffb4b4">remote: main is protected: direct pushes are not allowed</text>
+    <text x="244" y="538" fill="#ffb4b4"> ! [remote rejected] main -&gt; main (pre-receive hook declined)</text>
+  </g>
+</svg>

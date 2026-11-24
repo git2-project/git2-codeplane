@@ -70,6 +70,7 @@ func TestRegisteredServices(t *testing.T) {
 			gitv1.RefService_ServiceDesc.ServiceName,
 			gitv1.CommitService_ServiceDesc.ServiceName,
 			gitv1.BundleService_ServiceDesc.ServiceName,
+			gitv1.DiffService_ServiceDesc.ServiceName,
 		} {
 			if _, ok := services[name]; !ok {
 				t.Errorf("Reflection=%v: %s not registered", dev, name)

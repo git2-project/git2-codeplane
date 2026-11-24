@@ -35,9 +35,6 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // DiffService compares refs of a repository.
-//
-// Not implemented yet: every RPC answers UNIMPLEMENTED until
-// git2-codeplane#23 is done.
 type DiffServiceClient interface {
 	// CompareRefs returns what head has that base does not: the commits after
 	// their merge base, and the changes from the merge base to head. This is
@@ -86,9 +83,6 @@ func (c *diffServiceClient) CompareRefs(ctx context.Context, in *CompareRefsRequ
 // for forward compatibility.
 //
 // DiffService compares refs of a repository.
-//
-// Not implemented yet: every RPC answers UNIMPLEMENTED until
-// git2-codeplane#23 is done.
 type DiffServiceServer interface {
 	// CompareRefs returns what head has that base does not: the commits after
 	// their merge base, and the changes from the merge base to head. This is

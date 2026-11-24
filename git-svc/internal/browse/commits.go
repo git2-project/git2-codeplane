@@ -123,18 +123,29 @@ func (s *Service) GetCommit(ctx context.Context, id uuid.UUID, sha string) (Comm
 	if len(c.ParentSHAs) > 0 {
 		trees = []string{c.ParentSHAs[0], full}
 	}
-	changes, stats, err := s.diffFiles(ctx, r.dir, trees)
-	if err != nil {
-		return CommitDetail{}, err
-	}
-	detail := CommitDetail{Commit: c, Stats: stats}
-	if len(changes) > maxDiffFiles {
-		changes, detail.Truncated = changes[:maxDiffFiles], true
-	}
-	if detail.Files, err = s.diffPatches(ctx, r.dir, trees, changes); err != nil {
+	detail := CommitDetail{Commit: c}
+	if detail.Stats, detail.Files, detail.Truncated, err = s.diff(ctx, r.dir, trees); err != nil {
 		return CommitDetail{}, err
 	}
 	return detail, nil
+}
+
+// diff returns the changes between trees (two tree-ish, or "--root" and a
+// commit) with the limits of the API: at most maxDiffFiles files, which
+// truncated reports, and patches cut as patchSplitter does. stats counts
+// every changed file.
+func (s *Service) diff(ctx context.Context, dir string, trees []string) (stats DiffStats, files []FileDiff, truncated bool, err error) {
+	changes, stats, err := s.diffFiles(ctx, dir, trees)
+	if err != nil {
+		return DiffStats{}, nil, false, err
+	}
+	if len(changes) > maxDiffFiles {
+		changes, truncated = changes[:maxDiffFiles], true
+	}
+	if files, err = s.diffPatches(ctx, dir, trees, changes); err != nil {
+		return DiffStats{}, nil, false, err
+	}
+	return stats, files, truncated, nil
 }
 
 // readCommit returns the commit with this full SHA.

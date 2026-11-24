@@ -30,6 +30,8 @@ func toStatus(ctx context.Context, log *slog.Logger, err error) error {
 		return status.Error(codes.NotFound, "repository not found")
 	case errors.Is(err, browse.ErrRefNotFound):
 		return status.Error(codes.NotFound, "ref not found")
+	case errors.Is(err, browse.ErrNoMergeBase):
+		return status.Error(codes.FailedPrecondition, "base and head have no common history")
 	case errors.Is(err, browse.ErrPathNotFound):
 		return status.Error(codes.NotFound, "path not found")
 	case errors.Is(err, browse.ErrCommitNotFound):

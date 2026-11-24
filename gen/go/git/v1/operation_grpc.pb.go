@@ -46,9 +46,6 @@ const (
 // approvals (FR-36). The push hook does not run for these merges, so the
 // branch rules that git-svc applies to pushes (WBS-7.1) do not apply to
 // them either.
-//
-// Not implemented yet: every RPC answers UNIMPLEMENTED until
-// git2-codeplane#24 is done.
 type OperationServiceClient interface {
 	// CheckMerge tells whether source_branch can be merged into target_branch
 	// now, and how. It changes no branch.
@@ -145,9 +142,6 @@ func (c *operationServiceClient) MergeBranches(ctx context.Context, in *MergeBra
 // approvals (FR-36). The push hook does not run for these merges, so the
 // branch rules that git-svc applies to pushes (WBS-7.1) do not apply to
 // them either.
-//
-// Not implemented yet: every RPC answers UNIMPLEMENTED until
-// git2-codeplane#24 is done.
 type OperationServiceServer interface {
 	// CheckMerge tells whether source_branch can be merged into target_branch
 	// now, and how. It changes no branch.

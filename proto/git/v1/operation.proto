@@ -20,9 +20,6 @@ package git.v1;
 // approvals (FR-36). The push hook does not run for these merges, so the
 // branch rules that git-svc applies to pushes (WBS-7.1) do not apply to
 // them either.
-//
-// Not implemented yet: every RPC answers UNIMPLEMENTED until
-// git2-codeplane#24 is done.
 service OperationService {
   // CheckMerge tells whether source_branch can be merged into target_branch
   // now, and how. It changes no branch.
@@ -196,7 +193,8 @@ message MergeBranchesRequest {
   // reviewers saw, such as CheckMergeResponse.source_sha. Required.
   string expected_source_sha = 5;
 
-  // Message of the new commit, used as given. Required for
+  // Message of the new commit, used as given, with a final line break
+  // added if it has none. At most 64 KiB, without NUL. Required for
   // MERGE_STRATEGY_MERGE_COMMIT and MERGE_STRATEGY_SQUASH, ignored for
   // MERGE_STRATEGY_FAST_FORWARD. The caller builds the text, for example
   // "Merge branch 'feature' into 'main'" and a line naming the merge

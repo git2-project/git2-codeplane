@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,17 +19,21 @@ import (
 	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/gitcmd"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/merge"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/storage"
 )
 
-// These tests call DiffService over gRPC, as dash-api does. The
-// repository's row comes from a fake, so no database is needed; package
-// browse tests the engine itself.
+// These tests call DiffService and OperationService over gRPC, as dash-api
+// does. The repository's row and the events come from a fake, so no
+// database is needed; packages browse and merge test the engine itself.
 
-// branchRepo is the one live repository of these tests.
+// branchRepo is the one live repository of these tests, and keeps the
+// events of its merges.
 type branchRepo struct {
-	id uuid.UUID
+	id     uuid.UUID
+	mu     sync.Mutex
+	pushes []repo.Push
 }
 
 func (b *branchRepo) Get(_ context.Context, id uuid.UUID) (repo.Repository, error) {
@@ -38,11 +43,25 @@ func (b *branchRepo) Get(_ context.Context, id uuid.UUID) (repo.Repository, erro
 	return repo.Repository{ID: id, DefaultBranch: "main"}, nil
 }
 
+func (b *branchRepo) RecordPush(_ context.Context, p repo.Push) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.pushes = append(b.pushes, p)
+	return nil
+}
+
+func (b *branchRepo) events() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.pushes)
+}
+
 // branchFixture is a served repository where, from a common base, main
 // changes f.txt, feature adds n.txt and conflict changes f.txt differently.
 type branchFixture struct {
 	repo  *branchRepo
 	diff  gitv1.DiffServiceClient
+	ops   gitv1.OperationServiceClient
 	base  string
 	main  string
 	feat  string
@@ -86,7 +105,7 @@ func newBranchFixture(t *testing.T) *branchFixture {
 		"main:refs/heads/main", "feature:refs/heads/feature", "conflict:refs/heads/conflict")
 
 	log := newTestLogger(t)
-	srv := New(log, nil, browse.NewService(f.repo, layout, git), Options{})
+	srv := New(log, nil, browse.NewService(f.repo, layout, git), merge.NewService(f.repo, layout, git, log), Options{})
 	lis := bufconn.Listen(1 << 20)
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(func() {
@@ -101,7 +120,7 @@ func newBranchFixture(t *testing.T) *branchFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	f.diff = gitv1.NewDiffServiceClient(conn)
+	f.diff, f.ops = gitv1.NewDiffServiceClient(conn), gitv1.NewOperationServiceClient(conn)
 	return f
 }
 

@@ -512,7 +512,8 @@ type MergeBranchesRequest struct {
 	// Full SHA that the source branch must still point to: the commit the
 	// reviewers saw, such as CheckMergeResponse.source_sha. Required.
 	ExpectedSourceSha string `protobuf:"bytes,5,opt,name=expected_source_sha,json=expectedSourceSha,proto3" json:"expected_source_sha,omitempty"`
-	// Message of the new commit, used as given. Required for
+	// Message of the new commit, used as given, with a final line break
+	// added if it has none. At most 64 KiB, without NUL. Required for
 	// MERGE_STRATEGY_MERGE_COMMIT and MERGE_STRATEGY_SQUASH, ignored for
 	// MERGE_STRATEGY_FAST_FORWARD. The caller builds the text, for example
 	// "Merge branch 'feature' into 'main'" and a line naming the merge

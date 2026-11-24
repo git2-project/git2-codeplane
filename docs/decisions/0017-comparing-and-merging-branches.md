@@ -79,13 +79,20 @@ Keeping writes in a service of their own makes every caller that can move a bran
 - `CommitIdentity` fields are required, at most 255 bytes, and must not contain `<`, `>` or a line break; git would refuse such a commit or record it wrongly.
 - At most 100 conflicting files are listed, with `conflicts_truncated` when there are more. Each one is a `ConflictFile` message, not a string, so fields such as the kind of conflict can be added later without breaking callers.
 
-**Engine, for #23 and #24.** Only git plumbing on the bare repository, never a working tree, as risk R-13's mitigation says:
-- `merge-base` and `rev-list --left-right --count`;
-- the patch code of `browse` for the changes;
-- `merge-tree --write-tree` for the merged tree and the conflicts (git 2.38, our minimum);
-- `commit-tree` and `update-ref`.
+**Engine.** Only git plumbing on the bare repository, never a working tree, as risk R-13's mitigation says.
+- **`CompareRefs`** lives in package `browse`, next to `GetCommit`.
+  - It runs `merge-base` and `rev-list --left-right --count`.
+  - The changes come from the same code as `GetCommit`'s, now shared by both, so the limits and the patch splitting cannot drift apart.
+- **`CheckMerge` and `MergeBranches`** live in package `merge`.
+  - `merge-tree --write-tree --name-only --no-messages -z` gives the merged tree, or the conflicting paths with exit status 1. It needs git 2.38, our minimum.
+  - `commit-tree` writes the merge or squash commit. The names and emails go in its environment and the message on its standard input, so user input is never an argument.
+  - `update-ref <ref> <new> <old>` moves the branch.
+- **When the update is refused,** git-svc reads the branch again:
+  - if it moved, the merge is computed again, up to three times, with a short pause in between;
+  - if it did not move, git failed for another reason, which is an `INTERNAL` error, not `ABORTED`.
+- **Two cases count as "already merged":** the source is an ancestor of the target, or the merged tree equals the target's tree.
 
-**Not served until built.** git-svc registers neither service yet. gRPC answers `UNIMPLEMENTED` for an unknown service by itself, before any interceptor runs, so calls made too early do not fill the log with errors. A test keeps it that way until #23 and #24 register the services.
+**Limits.** A commit message is at most 64 KiB, without NUL; a final line break is added if it has none. Names and emails are at most 255 bytes each.
 
 **Not in v0:**
 - Keeping a merge request's commits after its source branch is deleted. That needs `refs/merge-requests/<n>/head`, and it comes if Dash asks for it.

@@ -31,6 +31,7 @@ import (
 	"github.com/git2-project/git2-codeplane/git-svc/internal/config"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/db"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/gitcmd"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/merge"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/relay"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/server"
@@ -112,7 +113,8 @@ func serve(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 
 	repos := repo.NewService(pool, store, log)
 	reader := browse.NewService(repos, layout, git)
-	grpcSrv := server.New(log, repos, reader, server.Options{Reflection: cfg.Dev})
+	merger := merge.NewService(repos, layout, git, log)
+	grpcSrv := server.New(log, repos, reader, merger, server.Options{Reflection: cfg.Dev})
 	httpSrv, err := smarthttp.New(smarthttp.Options{
 		Log:    log,
 		Layout: layout,

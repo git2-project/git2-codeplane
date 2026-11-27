@@ -61,7 +61,7 @@ func TestStreamCanceledByClient(t *testing.T) {
 	// them from logs.
 	logs := &syncBuffer{}
 	log := slog.New(slog.NewTextHandler(io.MultiWriter(t.Output(), logs), nil))
-	srv := New(log, nil, browse.NewService(oneRepo{id: id}, layout, git), Options{})
+	srv := New(log, nil, browse.NewService(oneRepo{id: id}, layout, git), nil, Options{})
 	lis := bufconn.Listen(1 << 20)
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(func() {

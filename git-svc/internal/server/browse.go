@@ -242,29 +242,12 @@ func (s *commitServer) GetCommit(ctx context.Context, req *gitv1.GetCommitReques
 	if err != nil {
 		return nil, toStatus(ctx, s.log, err)
 	}
-	resp := &gitv1.GetCommitResponse{
-		Commit: commitToProto(d.Commit),
-		Stats: &gitv1.DiffStats{
-			FilesChanged: clamp32(d.Stats.FilesChanged),
-			Additions:    clamp32(d.Stats.Additions),
-			Deletions:    clamp32(d.Stats.Deletions),
-		},
-		Files:     make([]*gitv1.FileDiff, 0, len(d.Files)),
+	return &gitv1.GetCommitResponse{
+		Commit:    commitToProto(d.Commit),
+		Stats:     statsToProto(d.Stats),
+		Files:     filesToProto(d.Files),
 		Truncated: d.Truncated,
-	}
-	for _, f := range d.Files {
-		resp.Files = append(resp.Files, &gitv1.FileDiff{
-			Status:    fileStatusToProto(f.Status),
-			OldPath:   f.OldPath,
-			NewPath:   f.NewPath,
-			Additions: clamp32(f.Additions),
-			Deletions: clamp32(f.Deletions),
-			Binary:    f.Binary,
-			Truncated: f.Truncated,
-			Patch:     f.Patch,
-		})
-	}
-	return resp, nil
+	}, nil
 }
 
 func commitToProto(c browse.Commit) *gitv1.Commit {

@@ -108,6 +108,12 @@ const (
 	MergeStatus_MERGE_STATUS_CONFLICTS MergeStatus = 2
 	// The target already contains every change of the source: there is
 	// nothing to merge.
+	//
+	// This compares files, not commits. The source's commits may still be
+	// missing from the target, for example after a squash, or when they add
+	// up to no change (a commit and its revert); no strategy moves the target
+	// then, fast-forward included. DiffService.CompareRefs tells the cases
+	// apart: ahead_by = 0 means the source's commits are on the target too.
 	MergeStatus_MERGE_STATUS_ALREADY_MERGED MergeStatus = 3
 	// The branches have no common history, so they cannot be merged.
 	MergeStatus_MERGE_STATUS_UNRELATED MergeStatus = 4
@@ -173,8 +179,9 @@ const (
 	// The source branch no longer points to expected_source_sha: commits
 	// arrived that the reviewers have not seen.
 	MergeErrorReason_MERGE_ERROR_REASON_SOURCE_MOVED MergeErrorReason = 3
-	// The target already contains every change of the source. A retry of a
-	// merge that succeeded ends here too.
+	// The target already contains every change of the source, as with
+	// MERGE_STATUS_ALREADY_MERGED. A retry of a merge that succeeded ends
+	// here too.
 	MergeErrorReason_MERGE_ERROR_REASON_ALREADY_MERGED MergeErrorReason = 4
 	// The branches have no common history.
 	MergeErrorReason_MERGE_ERROR_REASON_UNRELATED MergeErrorReason = 5
@@ -274,8 +281,10 @@ func (x *ConflictFile) GetPath() string {
 }
 
 // CommitIdentity is the name and email recorded in a new commit. Both are
-// required, at most 255 bytes, and must not contain "<", ">" or a line
-// break.
+// required, at most 255 bytes of UTF-8, and must not contain "<", ">", a
+// line break or NUL. Each must also have a character other than spaces,
+// control characters and . , : ; " ' \, which git drops at the start and
+// the end of a name or email.
 type CommitIdentity struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Name, for example "Deniz Yılmaz".
@@ -512,7 +521,8 @@ type MergeBranchesRequest struct {
 	// Full SHA that the source branch must still point to: the commit the
 	// reviewers saw, such as CheckMergeResponse.source_sha. Required.
 	ExpectedSourceSha string `protobuf:"bytes,5,opt,name=expected_source_sha,json=expectedSourceSha,proto3" json:"expected_source_sha,omitempty"`
-	// Message of the new commit, used as given. Required for
+	// Message of the new commit, used as given, with a final line break
+	// added if it has none. At most 64 KiB, without NUL. Required for
 	// MERGE_STRATEGY_MERGE_COMMIT and MERGE_STRATEGY_SQUASH, ignored for
 	// MERGE_STRATEGY_FAST_FORWARD. The caller builds the text, for example
 	// "Merge branch 'feature' into 'main'" and a line naming the merge

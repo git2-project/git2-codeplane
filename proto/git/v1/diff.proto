@@ -12,9 +12,6 @@ package git.v1;
 import "git/v1/commit.proto";
 
 // DiffService compares refs of a repository.
-//
-// Not implemented yet: every RPC answers UNIMPLEMENTED until
-// git2-codeplane#23 is done.
 service DiffService {
   // CompareRefs returns what head has that base does not: the commits after
   // their merge base, and the changes from the merge base to head. This is

@@ -46,9 +46,6 @@ const (
 // approvals (FR-36). The push hook does not run for these merges, so the
 // branch rules that git-svc applies to pushes (WBS-7.1) do not apply to
 // them either.
-//
-// Not implemented yet: every RPC answers UNIMPLEMENTED until
-// git2-codeplane#24 is done.
 type OperationServiceClient interface {
 	// CheckMerge tells whether source_branch can be merged into target_branch
 	// now, and how. It changes no branch.
@@ -69,9 +66,10 @@ type OperationServiceClient interface {
 	// not changed or deleted.
 	//
 	// The merge runs on the repository itself, without a working tree. It
-	// never creates a commit that changes no file: when the result has the
-	// same files as the target, the answer is
-	// MERGE_ERROR_REASON_ALREADY_MERGED.
+	// never moves the target without changing a file: when the result has
+	// the same files as the target, the answer is
+	// MERGE_ERROR_REASON_ALREADY_MERGED, for every strategy, fast-forward
+	// included (see MERGE_STATUS_ALREADY_MERGED).
 	//
 	// Safety:
 	//   - The source must still point to expected_source_sha, the commit the
@@ -145,9 +143,6 @@ func (c *operationServiceClient) MergeBranches(ctx context.Context, in *MergeBra
 // approvals (FR-36). The push hook does not run for these merges, so the
 // branch rules that git-svc applies to pushes (WBS-7.1) do not apply to
 // them either.
-//
-// Not implemented yet: every RPC answers UNIMPLEMENTED until
-// git2-codeplane#24 is done.
 type OperationServiceServer interface {
 	// CheckMerge tells whether source_branch can be merged into target_branch
 	// now, and how. It changes no branch.
@@ -168,9 +163,10 @@ type OperationServiceServer interface {
 	// not changed or deleted.
 	//
 	// The merge runs on the repository itself, without a working tree. It
-	// never creates a commit that changes no file: when the result has the
-	// same files as the target, the answer is
-	// MERGE_ERROR_REASON_ALREADY_MERGED.
+	// never moves the target without changing a file: when the result has
+	// the same files as the target, the answer is
+	// MERGE_ERROR_REASON_ALREADY_MERGED, for every strategy, fast-forward
+	// included (see MERGE_STATUS_ALREADY_MERGED).
 	//
 	// Safety:
 	//   - The source must still point to expected_source_sha, the commit the

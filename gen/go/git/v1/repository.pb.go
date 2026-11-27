@@ -29,11 +29,9 @@
 //   - BundleService (bundle.proto): whole repositories as Git bundles, for
 //     backup-svc and restores only.
 //   - DiffService (diff.proto): what a merge request would bring, its
-//     commits and changes. Contract only; it answers UNIMPLEMENTED until
-//     git2-codeplane#23 is done.
+//     commits and changes.
 //   - OperationService (operation.proto): checking and doing merges
-//     (merge commit, squash, fast-forward). Contract only; it answers
-//     UNIMPLEMENTED until git2-codeplane#24 is done.
+//     (merge commit, squash, fast-forward).
 //
 // Planned, not available yet:
 //   - Creating and deleting branches and tags through the API

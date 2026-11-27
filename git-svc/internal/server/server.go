@@ -14,6 +14,7 @@ import (
 
 	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/merge"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 )
 
@@ -25,6 +26,8 @@ var healthServices = []string{
 	gitv1.RefService_ServiceDesc.ServiceName,
 	gitv1.CommitService_ServiceDesc.ServiceName,
 	gitv1.BundleService_ServiceDesc.ServiceName,
+	gitv1.DiffService_ServiceDesc.ServiceName,
+	gitv1.OperationService_ServiceDesc.ServiceName,
 }
 
 // Options configure New.
@@ -40,10 +43,10 @@ type Server struct {
 }
 
 // New builds the gRPC server with its interceptors, RepositoryService and
-// BundleService backed by repos, RefService and CommitService backed by
-// reader, and the health service. Health reports NOT_SERVING until Serve is
-// called.
-func New(log *slog.Logger, repos *repo.Service, reader *browse.Service, opts Options) *Server {
+// BundleService backed by repos, RefService, CommitService and DiffService
+// backed by reader, OperationService backed by merger, and the health
+// service. Health reports NOT_SERVING until Serve is called.
+func New(log *slog.Logger, repos *repo.Service, reader *browse.Service, merger *merge.Service, opts Options) *Server {
 	gs := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(logUnary(log), recoverUnary(log)),
 		grpc.ChainStreamInterceptor(logStream(log), recoverStream(log)),
@@ -53,6 +56,8 @@ func New(log *slog.Logger, repos *repo.Service, reader *browse.Service, opts Opt
 	gitv1.RegisterRefServiceServer(gs, &refServer{reader: reader, log: log})
 	gitv1.RegisterCommitServiceServer(gs, &commitServer{reader: reader, log: log})
 	gitv1.RegisterBundleServiceServer(gs, &bundleServer{repos: repos, log: log})
+	gitv1.RegisterDiffServiceServer(gs, &diffServer{reader: reader, log: log})
+	gitv1.RegisterOperationServiceServer(gs, &operationServer{merger: merger, log: log})
 
 	hs := health.NewServer()
 	for _, name := range healthServices {

@@ -28,6 +28,7 @@ import (
 	gitv1 "github.com/git2-project/git2-codeplane/gen/go/git/v1"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/browse"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/gitcmd"
+	"github.com/git2-project/git2-codeplane/git-svc/internal/merge"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/repo"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/storage"
 	"github.com/git2-project/git2-codeplane/git-svc/internal/testdb"
@@ -502,7 +503,7 @@ func newTestEnv(t *testing.T, mode testdb.Mode) *testEnv {
 	// Server logs show up when a test fails or with -v.
 	log := slog.New(slog.NewTextHandler(t.Output(), nil))
 	repos := repo.NewService(pool, storage.NewStore(layout, git), log)
-	srv := New(log, repos, browse.NewService(repos, layout, git), Options{})
+	srv := New(log, repos, browse.NewService(repos, layout, git), merge.NewService(repos, layout, git, log), Options{})
 
 	lis := bufconn.Listen(1 << 20)
 	go func() { _ = srv.Serve(lis) }()

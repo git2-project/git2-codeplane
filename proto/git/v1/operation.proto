@@ -41,9 +41,10 @@ service OperationService {
   // not changed or deleted.
   //
   // The merge runs on the repository itself, without a working tree. It
-  // never creates a commit that changes no file: when the result has the
-  // same files as the target, the answer is
-  // MERGE_ERROR_REASON_ALREADY_MERGED.
+  // never moves the target without changing a file: when the result has
+  // the same files as the target, the answer is
+  // MERGE_ERROR_REASON_ALREADY_MERGED, for every strategy, fast-forward
+  // included (see MERGE_STATUS_ALREADY_MERGED).
   //
   // Safety:
   //   - The source must still point to expected_source_sha, the commit the
@@ -112,6 +113,12 @@ enum MergeStatus {
 
   // The target already contains every change of the source: there is
   // nothing to merge.
+  //
+  // This compares files, not commits. The source's commits may still be
+  // missing from the target, for example after a squash, or when they add
+  // up to no change (a commit and its revert); no strategy moves the target
+  // then, fast-forward included. DiffService.CompareRefs tells the cases
+  // apart: ahead_by = 0 means the source's commits are on the target too.
   MERGE_STATUS_ALREADY_MERGED = 3;
 
   // The branches have no common history, so they cannot be merged.
@@ -125,8 +132,10 @@ message ConflictFile {
 }
 
 // CommitIdentity is the name and email recorded in a new commit. Both are
-// required, at most 255 bytes, and must not contain "<", ">" or a line
-// break.
+// required, at most 255 bytes of UTF-8, and must not contain "<", ">", a
+// line break or NUL. Each must also have a character other than spaces,
+// control characters and . , : ; " ' \, which git drops at the start and
+// the end of a name or email.
 message CommitIdentity {
   // Name, for example "Deniz Yılmaz".
   string name = 1;
@@ -242,8 +251,9 @@ enum MergeErrorReason {
   // arrived that the reviewers have not seen.
   MERGE_ERROR_REASON_SOURCE_MOVED = 3;
 
-  // The target already contains every change of the source. A retry of a
-  // merge that succeeded ends here too.
+  // The target already contains every change of the source, as with
+  // MERGE_STATUS_ALREADY_MERGED. A retry of a merge that succeeded ends
+  // here too.
   MERGE_ERROR_REASON_ALREADY_MERGED = 4;
 
   // The branches have no common history.

@@ -595,6 +595,12 @@ func TestMergeBranchesErrors(t *testing.T) {
 		{"author without email", with(func(r *Request) { r.Author = &Identity{Name: "Deniz"} }), "author.email", nil},
 		{"author with brackets", with(func(r *Request) { r.Author = &Identity{Name: "D <x>", Email: "d@example.com"} }), "author.name", nil},
 		{"committer with a line break", with(func(r *Request) { r.Committer = &Identity{Name: "S", Email: "s@example.com\nx"} }), "committer.email", nil},
+		{"author with NUL", with(func(r *Request) { r.Author = &Identity{Name: "D\x00", Email: "d@example.com"} }), "author.name", nil},
+		// git drops these characters at both ends, so nothing would be left.
+		{"author name of punctuation", with(func(r *Request) { r.Author = &Identity{Name: ", ", Email: "d@example.com"} }), "author.name", nil},
+		{"author name of dots", with(func(r *Request) { r.Author = &Identity{Name: "..", Email: "d@example.com"} }), "author.name", nil},
+		{"author name of a control character", with(func(r *Request) { r.Author = &Identity{Name: "\x01", Email: "d@example.com"} }), "author.name", nil},
+		{"committer email of punctuation", with(func(r *Request) { r.Committer = &Identity{Name: "S", Email: `"'\`} }), "committer.email", nil},
 		{"same branches", with(func(r *Request) { r.SourceBranch = "main" }), "target_branch", nil},
 		{"unknown source", with(func(r *Request) { r.SourceBranch = "nope" }), "", ErrBranchNotFound},
 		{"unknown target", with(func(r *Request) { r.TargetBranch = "nope" }), "", ErrBranchNotFound},
@@ -605,6 +611,29 @@ func TestMergeBranchesErrors(t *testing.T) {
 	}
 	if e.tip(t, s.id, "main") != s.m1 || len(e.repos.events()) != 0 {
 		t.Error("a failed request changed main or wrote an event")
+	}
+}
+
+// Every identity that validate accepts must be one git accepts too, or the
+// merge would fail in commit-tree and the caller would get INTERNAL instead
+// of INVALID_ARGUMENT. Punctuation next to other characters is fine: git
+// keeps it, or drops it at the ends.
+func TestIdentityAcceptedByGit(t *testing.T) {
+	e := newEnv(t)
+	s := newScenario(t, e)
+	dir := e.layout.RepoPath(s.id)
+	tree := e.bare(t, s.id, "rev-parse", s.m1+"^{tree}")
+
+	for _, v := range []string{"_", "-", "Ş", "Dr. Deniz", "d'Arc", " .Deniz, ", "a\tb"} {
+		id := &Identity{Name: v, Email: v}
+		if err := id.validate("author"); err != nil {
+			t.Errorf("validate(%q) = %v, want nil", v, err)
+			continue
+		}
+		req := Request{Message: "m", Author: id}
+		if _, err := e.svc.commitTree(t.Context(), dir, tree, []string{s.m1}, req); err != nil {
+			t.Errorf("commit-tree with name and email %q: %v", v, err)
+		}
 	}
 }
 

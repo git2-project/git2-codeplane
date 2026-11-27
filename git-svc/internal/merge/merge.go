@@ -171,7 +171,10 @@ func (s *Service) analyze(ctx context.Context, dir, src, tgt string) (Check, err
 	}
 	if tree == tgtTree {
 		// The source's changes are already on the target, for example
-		// after a squash: a merge would change no file.
+		// after a squash: a merge would change no file. This compares
+		// files, not commits, so it holds for a fast-forward too: a source
+		// whose commits add up to no change (a commit and its revert) is
+		// already merged, although its commits are not on the target.
 		c.Status = StatusAlreadyMerged
 		return c, nil
 	}

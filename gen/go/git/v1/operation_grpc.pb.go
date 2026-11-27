@@ -66,9 +66,10 @@ type OperationServiceClient interface {
 	// not changed or deleted.
 	//
 	// The merge runs on the repository itself, without a working tree. It
-	// never creates a commit that changes no file: when the result has the
-	// same files as the target, the answer is
-	// MERGE_ERROR_REASON_ALREADY_MERGED.
+	// never moves the target without changing a file: when the result has
+	// the same files as the target, the answer is
+	// MERGE_ERROR_REASON_ALREADY_MERGED, for every strategy, fast-forward
+	// included (see MERGE_STATUS_ALREADY_MERGED).
 	//
 	// Safety:
 	//   - The source must still point to expected_source_sha, the commit the
@@ -162,9 +163,10 @@ type OperationServiceServer interface {
 	// not changed or deleted.
 	//
 	// The merge runs on the repository itself, without a working tree. It
-	// never creates a commit that changes no file: when the result has the
-	// same files as the target, the answer is
-	// MERGE_ERROR_REASON_ALREADY_MERGED.
+	// never moves the target without changing a file: when the result has
+	// the same files as the target, the answer is
+	// MERGE_ERROR_REASON_ALREADY_MERGED, for every strategy, fast-forward
+	// included (see MERGE_STATUS_ALREADY_MERGED).
 	//
 	// Safety:
 	//   - The source must still point to expected_source_sha, the commit the

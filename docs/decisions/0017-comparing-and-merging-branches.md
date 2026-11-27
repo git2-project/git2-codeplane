@@ -58,6 +58,7 @@ Keeping writes in a service of their own makes every caller that can move a bran
 **No empty commits, and safe retries.**
 - When the merged files equal the target's, there is nothing to merge, and the answer is `ALREADY_MERGED`.
 - This also makes a retried call safe. A merge commit or a fast-forward that already happened contains the source. A squash that already happened has the same files. Either way the retry ends in `ALREADY_MERGED`, never in a second commit.
+- The rule compares files, not commits, and holds for every strategy. A source whose commits add up to no change (a commit and its revert, or empty commits) is `ALREADY_MERGED` for a fast-forward too, although `CompareRefs` still counts those commits in `ahead_by`. A fast-forward there would change no file either, and one rule keeps `CheckMerge`'s single status true for all three strategies. Dash can show "nothing to merge" and offer to close the merge request; `ahead_by = 0` tells it that the source's commits are on the target as well.
 
 **Who wrote the commit.**
 - git-svc does not look users up; auth-svc owns them. dash-api sends a `CommitIdentity` with the name and email for `author`, and optionally a different `committer`.
@@ -76,7 +77,8 @@ Keeping writes in a service of their own makes every caller that can move a bran
 **Validation.**
 - Branch names follow ADR 0009.
 - The source and the target must differ.
-- `CommitIdentity` fields are required, at most 255 bytes, and must not contain `<`, `>` or a line break; git would refuse such a commit or record it wrongly.
+- `CommitIdentity` fields are required, at most 255 bytes of UTF-8, and must not contain `<`, `>`, a line break or NUL; git would refuse such a commit or record it wrongly.
+- Each field must also have a character that git keeps. git drops spaces, control characters and `. , : ; " ' \` at both ends of a name or email (the "crud" of its `ident.c`). It refuses a name with nothing left, and records such an email as empty. Recent git keeps `.`, but git-svc counts it anyway, so the rule does not depend on the git version. Without this check, a name like `", "` would pass validation and fail in `commit-tree` as `INTERNAL`.
 - At most 100 conflicting files are listed, with `conflicts_truncated` when there are more. Each one is a `ConflictFile` message, not a string, so fields such as the kind of conflict can be added later without breaking callers.
 
 **Engine.** Only git plumbing on the bare repository, never a working tree, as risk R-13's mitigation says.
@@ -87,12 +89,15 @@ Keeping writes in a service of their own makes every caller that can move a bran
   - `merge-tree --write-tree --name-only --no-messages -z` gives the merged tree, or the conflicting paths with exit status 1. It needs git 2.38, our minimum.
   - `commit-tree` writes the merge or squash commit. The names and emails go in its environment and the message on its standard input, so user input is never an argument.
   - `update-ref <ref> <new> <old>` moves the branch.
+- **`CheckMerge` writes objects.** `merge-tree` stores the merged tree, and blobs with conflict markers for conflicting files, even when no commit is made.
+  - Objects are content-addressed, and git skips an object that exists. Checking the same two tips again writes nothing new, so the objects grow with pushes to the branches, not with views of the merge request.
+  - Nothing references them, so `git gc` prunes them once they are older than its expiry (two weeks by default). The maintenance job that ADR 0012 lists as a TODO must keep an expiry: `--prune=now` could remove a tree that a running `MergeBranches` is about to commit.
 - **When the update is refused,** git-svc reads the branch again:
   - if it moved, the merge is computed again, up to three times, with a short pause in between;
   - if it did not move, git failed for another reason, which is an `INTERNAL` error, not `ABORTED`.
 - **Two cases count as "already merged":** the source is an ancestor of the target, or the merged tree equals the target's tree.
 
-**Limits.** A commit message is at most 64 KiB, without NUL; a final line break is added if it has none. Names and emails are at most 255 bytes each.
+**Limits.** A commit message is at most 64 KiB, without NUL; a final line break is added if it has none. Names and emails are at most 255 bytes each, with the rules under Validation.
 
 **Not in v0:**
 - Keeping a merge request's commits after its source branch is deleted. That needs `refs/merge-requests/<n>/head`, and it comes if Dash asks for it.

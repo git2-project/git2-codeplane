@@ -124,14 +124,20 @@ func (s *Service) MergeBranches(ctx context.Context, req Request) (Result, error
 	if err != nil {
 		return Result{}, err
 	}
-
-	for attempt := 1; ; attempt++ {
+	if src != req.ExpectedSourceSHA {
 		tgt, err := s.branchTip(ctx, dir, req.TargetBranch)
 		if err != nil {
 			return Result{}, err
 		}
-		if src != req.ExpectedSourceSHA {
-			return Result{}, &Refusal{Reason: ReasonSourceMoved, SourceSHA: src, TargetSHA: tgt}
+		return Result{}, &Refusal{Reason: ReasonSourceMoved, SourceSHA: src, TargetSHA: tgt}
+	}
+
+	// The source is read once: every attempt merges src, the commit the
+	// reviewers saw, even if the source branch moves meanwhile.
+	for attempt := 1; ; attempt++ {
+		tgt, err := s.branchTip(ctx, dir, req.TargetBranch)
+		if err != nil {
+			return Result{}, err
 		}
 		next, err := s.prepare(ctx, dir, req, src, tgt)
 		if err != nil {
@@ -315,6 +321,7 @@ func (r Request) validate() error {
 }
 
 // validate checks a name and email that git will record in a commit header.
+// Every value it accepts is one that commit-tree accepts too.
 func (id Identity) validate(field string) error {
 	for _, part := range []struct{ name, value string }{{"name", id.Name}, {"email", id.Email}} {
 		f := field + "." + part.name
@@ -323,11 +330,24 @@ func (id Identity) validate(field string) error {
 			return invalid(f, "is required")
 		case len(v) > maxIdentityPart:
 			return invalid(f, fmt.Sprintf("must be at most %d bytes", maxIdentityPart))
-		case !utf8.ValidString(v) || strings.ContainsAny(v, "<>\n\r\x00"):
+		case !utf8.ValidString(v) || strings.IndexByte(v, 0) >= 0:
+			return invalid(f, "must be valid UTF-8 without NUL")
+		case strings.ContainsAny(v, "<>\n\r"):
 			return invalid(f, "must not contain <, > or a line break")
+		case strings.TrimFunc(v, isCrud) == "":
+			// git would refuse such a name, and record such an email as empty.
+			return invalid(f, `must contain a character other than spaces, control characters and . , : ; " ' \`)
 		}
 	}
 	return nil
+}
+
+// isCrud reports whether git drops r at the start and the end of a name or
+// email (the "crud" of git's ident.c). Recent versions of git keep "."; it
+// counts here anyway, so a value made only of dots is refused whatever the
+// git version.
+func isCrud(r rune) bool {
+	return r <= ' ' || strings.ContainsRune(`.,:;<>"'\`, r)
 }
 
 func invalid(field, reason string) error {
